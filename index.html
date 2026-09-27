@@ -23,6 +23,9 @@
   @supports(padding: env(safe-area-inset-bottom)) {
     body { padding-bottom: env(safe-area-inset-bottom); }
   }
+  @supports(padding: env(safe-area-inset-top)) {
+    #root > div { padding-top: env(safe-area-inset-top) !important; }
+  }
   input, select, textarea, button { font-size: 16px; }
   @media (max-width: 767px) {
     table { font-size: 13px; }
