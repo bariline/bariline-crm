@@ -11538,7 +11538,8 @@ function App() {
       background: colors.bg,
       color: colors.text,
       overflow: "hidden",
-      direction: "rtl"
+      direction: "rtl",
+      paddingTop: "env(safe-area-inset-top, 0px)"
     }
   }, isMobile && sidebarOpen && /*#__PURE__*/React.createElement("div", {
     onClick: () => setSidebarOpen(false),
@@ -11559,7 +11560,7 @@ function App() {
       flexShrink: 0,
       ...(isMobile ? {
         position: "fixed",
-        top: 0,
+        top: "env(safe-area-inset-top, 0px)",
         right: 0,
         bottom: 0,
         zIndex: 999
