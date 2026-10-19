@@ -4774,6 +4774,103 @@ const WorkOrdersPage = ({
       measurementConfirmedDate: new Date().toISOString().split("T")[0]
     } : prev);
   };
+  // ─── Measurement form (measure.html) embedded in the order ────
+  const [measureFrame, setMeasureFrame] = useState(null);
+  const measureFrameRef = useRef(null);
+  measureFrameRef.current = measureFrame;
+  const openMeasureForm = (order, mode) => {
+    const p = new URLSearchParams();
+    p.set("embed", "1");
+    if (mode === "view") {
+      const cur = currentMeasurement(order);
+      if (!cur) return;
+      p.set("view", "1");
+      p.set("m", cur.hash);
+    } else {
+      p.set("init", JSON.stringify({
+        no: order.id,
+        customer: order.customerName || "",
+        phone: order.customerPhone || "",
+        address: order.address || "",
+        installer: order.installerName || ""
+      }));
+    }
+    // Data travels in the #hash part only — it is never sent to any server
+    setMeasureFrame({
+      orderId: order.id,
+      mode,
+      customer: order.customerName || "",
+      src: "measure.html#" + p.toString()
+    });
+  };
+  const requestRemeasure = id => {
+    if (!confirm("לבקש מהמתקין מדידה חדשה? המדידה הקודמת נשמרת בהיסטוריה.")) return;
+    const patch = {
+      measured: false,
+      measurementDate: null
+    };
+    setWorkOrders(prev => prev.map(w => w.id === id ? addLog({
+      ...w,
+      ...patch
+    }, "remeasure_requested") : w));
+    setSelected(prev => prev && prev.id === id ? {
+      ...prev,
+      ...patch
+    } : prev);
+  };
+  useEffect(() => {
+    const onMsg = async e => {
+      if (e.origin !== window.location.origin || !e.data || e.data.type !== "bariline:measurement") return;
+      const frame = measureFrameRef.current;
+      if (!frame || frame.mode !== "new") return;
+      const reply = type => {
+        try {
+          e.source && e.source.postMessage({
+            type
+          }, window.location.origin);
+        } catch (err) {}
+      };
+      try {
+        const {
+          hash,
+          summary,
+          photo,
+          measuredBy
+        } = e.data;
+        if (!hash || typeof hash !== "string") throw new Error("no hash");
+        const entry = {
+          hash,
+          summary: summary || "",
+          submittedAt: new Date().toISOString(),
+          submittedBy: measuredBy || ""
+        };
+        const compressedPhoto = photo ? await compressImage(photo) : null;
+        const today = new Date().toISOString().split("T")[0];
+        const apply = w => {
+          const next = {
+            ...w,
+            measurements: [...(Array.isArray(w.measurements) ? w.measurements : []), entry],
+            measured: true,
+            measurementDate: today
+          };
+          if (compressedPhoto) next.measurementPhoto = compressedPhoto;
+          return next;
+        };
+        setWorkOrders(prev => prev.map(w => w.id === frame.orderId ? addLog(apply(w), "measured") : w));
+        setSelected(prev => prev && prev.id === frame.orderId ? apply(prev) : prev);
+        setMeasureFrame(f => f ? {
+          ...f,
+          saved: true
+        } : f);
+        reply("bariline:saved");
+      } catch (err) {
+        console.error("[MEASURE] save failed:", err);
+        reply("bariline:save-failed");
+      }
+    };
+    window.addEventListener("message", onMsg);
+    return () => window.removeEventListener("message", onMsg);
+  }, []);
   const addLog = (wo, action, extra) => ({
     ...wo,
     activityLog: [...(wo.activityLog || []), {
@@ -6285,11 +6382,23 @@ const WorkOrdersPage = ({
       }
     }, !selected.measured && selected.installerId && role === "installer" && /*#__PURE__*/React.createElement(Button, {
       size: "sm",
+      onClick: () => openMeasureForm(selected, "new")
+    }, Icons.ruler, " \u05E4\u05EA\u05D7 \u05D8\u05D5\u05E4\u05E1 \u05DE\u05D3\u05D9\u05D3\u05D4"), !selected.measured && selected.installerId && role === "installer" && /*#__PURE__*/React.createElement(Button, {
+      size: "sm",
+      variant: "outline",
       onClick: () => {
         setShowMeasurePhoto(selected.id);
         measureFileRef.current && measureFileRef.current.click();
       }
-    }, Icons.ruler, " \u05D1\u05E6\u05E2 \u05DE\u05D3\u05D9\u05D3\u05D4 + \u05E6\u05DC\u05DD"), !selected.measured && !selected.installerId && /*#__PURE__*/React.createElement("div", {
+    }, "\u05E6\u05D9\u05DC\u05D5\u05DD \u05D1\u05DC\u05D1\u05D3"), currentMeasurement(selected) && /*#__PURE__*/React.createElement(Button, {
+      size: "sm",
+      variant: "outline",
+      onClick: () => openMeasureForm(selected, "view")
+    }, "\uD83D\uDCC4 \u05E6\u05E4\u05D4 \u05D1\u05DE\u05D3\u05D9\u05D3\u05D4"), selected.measured && !selected.measurementConfirmed && role === "admin" && currentMeasurement(selected) && /*#__PURE__*/React.createElement(Button, {
+      size: "sm",
+      variant: "outline",
+      onClick: () => requestRemeasure(selected.id)
+    }, "\u05D1\u05E7\u05E9 \u05DE\u05D3\u05D9\u05D3\u05D4 \u05D7\u05D5\u05D6\u05E8\u05EA"), !selected.measured && !selected.installerId && /*#__PURE__*/React.createElement("div", {
       style: {
         fontSize: 12,
         color: colors.warning,
@@ -6322,7 +6431,62 @@ const WorkOrdersPage = ({
         color: colors.textMuted,
         padding: "6px 0"
       }
-    }, "\u05E0\u05E9\u05DC\u05D7 \u05DC\u05D9\u05D9\u05E6\u05D5\u05E8 \u2014 \u05DE\u05DE\u05EA\u05D9\u05DF \u05DC\u05D6\u05DB\u05D5\u05DB\u05D9\u05EA")), selected.measured && selected.measurementPhoto && /*#__PURE__*/React.createElement("div", {
+    }, "\u05E0\u05E9\u05DC\u05D7 \u05DC\u05D9\u05D9\u05E6\u05D5\u05E8 \u2014 \u05DE\u05DE\u05EA\u05D9\u05DF \u05DC\u05D6\u05DB\u05D5\u05DB\u05D9\u05EA")), currentMeasurement(selected) && /*#__PURE__*/React.createElement("div", {
+      style: {
+        marginTop: 12,
+        padding: 10,
+        background: "#f8fafc",
+        border: `1px solid ${colors.border}`,
+        borderRadius: 10
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 12,
+        fontWeight: 700,
+        marginBottom: 6,
+        color: colors.textLight
+      }
+    }, "\u05E1\u05D9\u05DB\u05D5\u05DD \u05DE\u05D3\u05D9\u05D3\u05D4", selected.measurements.length > 1 ? ` (\u05DE\u05D3\u05D9\u05D3\u05D4 ${selected.measurements.length})` : "", " \u2014 ", currentMeasurement(selected).submittedBy || "", " ", (currentMeasurement(selected).submittedAt || "").slice(0, 10)), /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 12,
+        whiteSpace: "pre-wrap",
+        lineHeight: 1.6
+      }
+    }, currentMeasurement(selected).summary || "")), measureFrame && ReactDOM.createPortal(/*#__PURE__*/React.createElement("div", {
+      style: {
+        position: "fixed",
+        inset: 0,
+        zIndex: 2000,
+        background: "#fff",
+        display: "flex",
+        flexDirection: "column",
+        paddingTop: "env(safe-area-inset-top)"
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        padding: "8px 12px",
+        borderBottom: `1px solid ${colors.border}`,
+        background: colors.bg
+      }
+    }, /*#__PURE__*/React.createElement("b", null, measureFrame.mode === "view" ? "\u05E6\u05E4\u05D9\u05D9\u05D4 \u05D1\u05DE\u05D3\u05D9\u05D3\u05D4" : "\u05D8\u05D5\u05E4\u05E1 \u05DE\u05D3\u05D9\u05D3\u05D4", " \u2014 ", measureFrame.customer), /*#__PURE__*/React.createElement(Button, {
+      size: "sm",
+      variant: "outline",
+      onClick: () => {
+        if (measureFrame.mode === "new" && !measureFrame.saved && !confirm("\u05DC\u05E1\u05D2\u05D5\u05E8 \u05D1\u05DC\u05D9 \u05DC\u05E9\u05DE\u05D5\u05E8? \u05D4\u05DE\u05D3\u05D9\u05D3\u05D4 \u05DC\u05D0 \u05EA\u05D9\u05E9\u05DE\u05E8.")) return;
+        setMeasureFrame(null);
+      }
+    }, Icons.x, " \u05E1\u05D2\u05D5\u05E8")), /*#__PURE__*/React.createElement("iframe", {
+      src: measureFrame.src,
+      title: "measure",
+      style: {
+        flex: 1,
+        border: 0,
+        width: "100%"
+      }
+    })), document.body), selected.measured && selected.measurementPhoto && /*#__PURE__*/React.createElement("div", {
       style: {
         marginTop: 12
       }
@@ -6670,7 +6834,7 @@ const WorkOrdersPage = ({
         fontSize: 12,
         fontWeight: 600
       }
-    }, log.action === "assigned" && `${log.by} לקח עבודה — התקנה ל-${log.scheduledDate}`, log.action === "measured" && `${log.by} — מדידה בוצעה`, log.action === "measurement_confirmed" && "מנהל אישר מדידה — נשלח לייצור", log.action === "started" && `${log.by} — התחיל עבודה`, log.action === "completed" && `${log.by} — סיים עבודה + חתימה`, log.action === "cancelled" && "הזמנה בוטלה (לקוח ביטל)", log.action === "reject_requested" && `${log.by} ביקש ביטול — ${log.reason}`, log.action === "reject_approved" && `מנהל אישר ביטול — מוצר ${log.productReturned ? "חזר למחסן" : "לא חזר למחסן"}`, log.action === "reject_denied" && "מנהל דחה בקשת ביטול — הוחזר לעבודה", log.action === "status_change" && `סטטוס שונה`, log.action === "photo_before" && `${log.by} — צילם לפני`, log.action === "photo_after" && `${log.by} — צילם אחרי`, log.action === "rematch_assigned" && `${log.by} שובץ מחדש (זכוכית מוכנה) — התקנה ל-${log.scheduledDate}`, log.action === "glass_ready" && "מנהל סימן זכוכית מוכנה", log.action === "admin_reassign" && `מנהל שינה מתקין ל-${log.newInstaller}`, log.action === "problem_reported" && `${log.by} — דיווח בעיה`, log.action === "installer_note" && `${log.by} — הערה: ${log.note}`), /*#__PURE__*/React.createElement("div", {
+    }, log.action === "assigned" && `${log.by} לקח עבודה — התקנה ל-${log.scheduledDate}`, log.action === "measured" && `${log.by} — מדידה בוצעה`, log.action === "measurement_confirmed" && "מנהל אישר מדידה — נשלח לייצור", log.action === "remeasure_requested" && "מנהל ביקש מדידה חוזרת", log.action === "started" && `${log.by} — התחיל עבודה`, log.action === "completed" && `${log.by} — סיים עבודה + חתימה`, log.action === "cancelled" && "הזמנה בוטלה (לקוח ביטל)", log.action === "reject_requested" && `${log.by} ביקש ביטול — ${log.reason}`, log.action === "reject_approved" && `מנהל אישר ביטול — מוצר ${log.productReturned ? "חזר למחסן" : "לא חזר למחסן"}`, log.action === "reject_denied" && "מנהל דחה בקשת ביטול — הוחזר לעבודה", log.action === "status_change" && `סטטוס שונה`, log.action === "photo_before" && `${log.by} — צילם לפני`, log.action === "photo_after" && `${log.by} — צילם אחרי`, log.action === "rematch_assigned" && `${log.by} שובץ מחדש (זכוכית מוכנה) — התקנה ל-${log.scheduledDate}`, log.action === "glass_ready" && "מנהל סימן זכוכית מוכנה", log.action === "admin_reassign" && `מנהל שינה מתקין ל-${log.newInstaller}`, log.action === "problem_reported" && `${log.by} — דיווח בעיה`, log.action === "installer_note" && `${log.by} — הערה: ${log.note}`), /*#__PURE__*/React.createElement("div", {
       style: {
         fontSize: 11,
         color: colors.textMuted
