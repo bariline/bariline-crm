@@ -3053,7 +3053,18 @@ const DashboardPage = ({
   const completed = workOrders.filter(w => w.status === "completed");
   const revenue = completed.reduce((s, w) => s + w.amount, 0);
   const availableInstallers = installers.filter(i => i.status === "available");
-  const lowStock = INVENTORY_DATA.filter(i => i.stock <= i.minStock);
+  const [stockItems, setStockItems] = useState([]);
+  useEffect(() => {
+    const db = getDb();
+    if (!db) return;
+    db.collection("stockItems").get().then(s => setStockItems(s.docs.map(d => d.data()))).catch(() => {});
+  }, []);
+  const lowStock = stockItems.filter(i => (Number(i.stock) || 0) < 0 || (Number(i.minStock) || 0) > 0 && (Number(i.stock) || 0) <= Number(i.minStock)).map(i => ({
+    ...i,
+    name: i.name + (i.finish ? " (" + i.finish + ")" : ""),
+    stock: Number(i.stock) || 0,
+    minStock: Number(i.minStock) || 0
+  }));
   const recentActivity = [{
     icon: Icons.check,
     color: colors.success,
@@ -4762,16 +4773,40 @@ const WorkOrdersPage = ({
       icon: Icons.check
     };
   };
-  const confirmMeasurement = id => {
-    setWorkOrders(prev => prev.map(w => w.id === id ? addLog({
-      ...w,
+  const confirmMeasurement = async id => {
+    const wo = workOrders.find(w => w.id === id);
+    const patch = {
       measurementConfirmed: true,
       measurementConfirmedDate: new Date().toISOString().split("T")[0]
+    };
+    // Take the drawing's hardware out of stock — once per order
+    if (wo && !wo.stockDeducted) {
+      const lines = orderHardwareLines(wo);
+      if (lines.length === 0) {
+        if (!confirm("\u05D0\u05D9\u05DF \u05E9\u05E8\u05D8\u05D5\u05D8 \u05E9\u05DE\u05D5\u05E8 \u05D1\u05D4\u05D6\u05DE\u05E0\u05D4 \u2014 \u05D4\u05E4\u05E8\u05D6\u05D5\u05DC \u05DC\u05D0 \u05D9\u05E8\u05D3 \u05DE\u05D4\u05DE\u05DC\u05D0\u05D9. \u05DC\u05E9\u05DC\u05D5\u05D7 \u05DC\u05D9\u05D9\u05E6\u05D5\u05E8 \u05D1\u05DB\u05DC \u05D6\u05D0\u05EA?")) return;
+      } else {
+        try {
+          await stockAdjust(lines, {
+            orderId: id,
+            reason: "\u05E9\u05DC\u05D9\u05D7\u05D4 \u05DC\u05D9\u05D9\u05E6\u05D5\u05E8"
+          });
+          patch.stockDeducted = {
+            at: new Date().toISOString(),
+            lines
+          };
+        } catch (e) {
+          alert("\u05D4\u05D5\u05E8\u05D3\u05EA \u05D4\u05DE\u05DC\u05D0\u05D9 \u05E0\u05DB\u05E9\u05DC\u05D4 \u2014 \u05D1\u05D3\u05D5\u05E7 \u05D7\u05D9\u05D1\u05D5\u05E8 \u05D5\u05E0\u05E1\u05D4 \u05E9\u05D5\u05D1. \u05D4\u05D4\u05D6\u05DE\u05E0\u05D4 \u05DC\u05D0 \u05E0\u05E9\u05DC\u05D7\u05D4 \u05DC\u05D9\u05D9\u05E6\u05D5\u05E8.");
+          return;
+        }
+      }
+    }
+    setWorkOrders(prev => prev.map(w => w.id === id ? addLog({
+      ...w,
+      ...patch
     }, "measurement_confirmed") : w));
     setSelected(prev => prev && prev.id === id ? {
       ...prev,
-      measurementConfirmed: true,
-      measurementConfirmedDate: new Date().toISOString().split("T")[0]
+      ...patch
     } : prev);
   };
   // ─── Measurement form (measure.html) embedded in the order ────
@@ -6570,7 +6605,7 @@ const WorkOrdersPage = ({
         marginBottom: 6,
         color: colors.textLight
       }
-    }, "\u05E9\u05E8\u05D8\u05D5\u05D8 \u05D9\u05D9\u05E6\u05D5\u05E8 \u2014 \u05E0\u05E9\u05DE\u05E8 ", (selected.drawing.savedAt || "").slice(0, 10)), selected.drawing.items.map(it => /*#__PURE__*/React.createElement("div", {
+    }, "\u05E9\u05E8\u05D8\u05D5\u05D8 \u05D9\u05D9\u05E6\u05D5\u05E8 \u2014 \u05E0\u05E9\u05DE\u05E8 ", (selected.drawing.savedAt || "").slice(0, 10), selected.stockDeducted ? " \u00B7 \u2714 \u05D4\u05E4\u05E8\u05D6\u05D5\u05DC \u05D9\u05E8\u05D3 \u05DE\u05D4\u05DE\u05DC\u05D0\u05D9" : ""), selected.drawing.items.map(it => /*#__PURE__*/React.createElement("div", {
       key: it.key,
       style: {
         fontSize: 12,
@@ -6581,7 +6616,12 @@ const WorkOrdersPage = ({
       style: {
         color: colors.textMuted
       }
-    }, "\u05E4\u05E8\u05D6\u05D5\u05DC: ", Object.entries(it.hardware).map(([n, q]) => `${n} \u00D7${q}`).join(" \u00B7 ")))), selected.drawing.quote && /*#__PURE__*/React.createElement("div", {
+    }, "\u05E4\u05E8\u05D6\u05D5\u05DC: ", Object.entries(it.hardware).map(([n, q]) => `${n} \u00D7${q}`).join(" \u00B7 ")), it.cost && /*#__PURE__*/React.createElement("div", {
+      style: {
+        color: colors.textMuted
+      },
+      title: (it.cost.rows || []).map(r => `${r.name}: ${r.sum == null ? "\u05D7\u05E1\u05E8 \u05DE\u05D7\u05D9\u05E8" : "\u20AA" + r.sum}`).join("\n")
+    }, "\u05E2\u05DC\u05D5\u05EA \u05D9\u05D9\u05E6\u05D5\u05E8: \u20AA", Number(it.cost.total || 0).toLocaleString(), it.cost.missing ? " (\u05D7\u05E1\u05E8\u05D9\u05DD \u05DE\u05D7\u05D9\u05E8\u05D9\u05DD)" : "", " \u2014 ", (it.cost.rows || []).filter(r => r.sum != null).map(r => `${r.name.split(" \u2013 ")[0]} \u20AA${r.sum}`).join(" \u00B7 ")))), selected.drawing.quote && /*#__PURE__*/React.createElement("div", {
       style: {
         display: "flex",
         alignItems: "center",
@@ -8888,163 +8928,438 @@ const CustomersPage = ({
 
 // ─── Inventory Page (Admin only) ─────────────────────────────────────────────
 
-const InventoryPage = () => {
-  const [inventory] = useState(INVENTORY_DATA);
-  const [search, setSearch] = useState("");
-  const [catFilter, setCatFilter] = useState("all");
-  const categories = ["all", ...new Set(inventory.map(i => i.category))];
-  const filtered = inventory.filter(i => {
-    const ms = i.name.includes(search) || i.sku.toLowerCase().includes(search.toLowerCase());
-    const mc = catFilter === "all" || i.category === catFilter;
-    return ms && mc;
+// ─── Real inventory (Firestore: stockItems + stockMoves) ────
+// Stock changes always use atomic increments, so two devices can never overwrite each other's counts.
+const HARDWARE_NAMES = ["ציר זכוכית קיר", "ציר זכוכית זכוכית", "ציר פינה", "ציר הרמוניקה", "ידית", "ידית מגבת", "מגנט פינתי", "מגנט ישר", "מגב בלון", "מגב תחתון", "מגב כסא", "סף", "חיבור זווית", "מוט תמיכה"];
+const FINISHES = ["ניקל מבריק", "כרום", "ניקל מוברש", "גרפיט", "זהב מוברש", "שחור"];
+function stockItemId(kind, name, finish) {
+  return (kind + "__" + name + "__" + (finish || "")).replace(/[\/.#\[\]]/g, "-").slice(0, 300);
+}
+async function stockAdjust(lines, meta) {
+  const db = getDb();
+  if (!db) throw new Error("no db");
+  const inc = firebase.firestore.FieldValue.increment;
+  const batch = db.batch();
+  const now = new Date().toISOString();
+  lines.forEach(l => {
+    if (!l.qty) return;
+    const id = stockItemId(l.kind, l.name, l.finish);
+    batch.set(db.collection("stockItems").doc(id), {
+      id,
+      kind: l.kind,
+      name: l.name,
+      finish: l.finish || "",
+      stock: inc(l.qty),
+      updatedAt: now
+    }, {
+      merge: true
+    });
+    batch.set(db.collection("stockMoves").doc(), {
+      itemId: id,
+      name: l.name,
+      finish: l.finish || "",
+      qty: l.qty,
+      orderId: meta.orderId || "",
+      reason: meta.reason || "",
+      by: meta.by || "",
+      at: now
+    });
   });
-  const lowStockCount = inventory.filter(i => i.stock <= i.minStock).length;
-  const totalValue = inventory.reduce((s, i) => s + i.stock * i.cost, 0);
-  return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+  await batch.commit();
+  usageCounters.writes += lines.length * 2;
+}
+// Hardware of an order's saved drawing → stock lines (negative = taken from stock)
+function orderHardwareLines(order) {
+  const out = {};
+  const items = order && order.drawing && Array.isArray(order.drawing.items) ? order.drawing.items : [];
+  items.forEach(it => {
+    const finish = it.finish || it.snapshot && it.snapshot.finish || "";
+    Object.entries(it.hardware || {}).forEach(([name, q]) => {
+      const k = name + "|" + finish;
+      out[k] = out[k] || {
+        kind: "hardware",
+        name,
+        finish,
+        qty: 0
+      };
+      out[k].qty -= Number(q) || 0;
+    });
+  });
+  return Object.values(out).filter(l => l.qty !== 0);
+}
+const InventoryPage = () => {
+  const h = React.createElement;
+  const [items, setItems] = useState([]);
+  const [moves, setMoves] = useState([]);
+  const [tab, setTab] = useState("hardware");
+  const [search, setSearch] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [form, setForm] = useState(null);
+  useEffect(() => {
+    const db = getDb();
+    if (!db) return;
+    const u1 = db.collection("stockItems").onSnapshot(s => setItems(s.docs.map(d => d.data())), e => console.warn("stockItems", e));
+    const u2 = db.collection("stockMoves").orderBy("at", "desc").limit(30).onSnapshot(s => setMoves(s.docs.map(d => d.data())), e => console.warn("stockMoves", e));
+    return () => {
+      u1();
+      u2();
+    };
+  }, []);
+  const adjust = async (it, qty, reason) => {
+    setBusy(true);
+    try {
+      await stockAdjust([{
+        kind: it.kind,
+        name: it.name,
+        finish: it.finish,
+        qty
+      }], {
+        reason
+      });
+    } catch (e) {
+      alert("העדכון נכשל — נסה שוב");
+    }
+    setBusy(false);
+  };
+  const setCount = it => {
+    const v = prompt(`כמה ${it.name}${it.finish ? " (" + it.finish + ")" : ""} יש במלאי בפועל?`, String(it.stock || 0));
+    if (v === null || v.trim() === "" || isNaN(Number(v))) return;
+    const diff = Number(v) - (Number(it.stock) || 0);
+    if (diff) adjust(it, diff, "ספירת מלאי");
+  };
+  const setMin = async it => {
+    const v = prompt("מלאי מינימום (התראה כשיורד מתחת):", String(it.minStock || 0));
+    if (v === null || isNaN(Number(v))) return;
+    await getDb().collection("stockItems").doc(it.id).set({
+      minStock: Number(v)
+    }, {
+      merge: true
+    });
+  };
+  const saveNew = async () => {
+    if (!form.name.trim()) return;
+    const qty = Number(form.stock) || 0;
+    const id = stockItemId(form.kind, form.name.trim(), form.finish);
+    setBusy(true);
+    try {
+      await getDb().collection("stockItems").doc(id).set({
+        id,
+        kind: form.kind,
+        name: form.name.trim(),
+        finish: form.finish,
+        minStock: Number(form.minStock) || 0,
+        stock: firebase.firestore.FieldValue.increment(0),
+        updatedAt: new Date().toISOString()
+      }, {
+        merge: true
+      });
+      if (qty) await stockAdjust([{
+        kind: form.kind,
+        name: form.name.trim(),
+        finish: form.finish,
+        qty
+      }], {
+        reason: "מלאי פתיחה"
+      });
+      setForm(null);
+    } catch (e) {
+      alert("השמירה נכשלה — נסה שוב");
+    }
+    setBusy(false);
+  };
+  const list = items.filter(i => i.kind === tab && (!search || (i.name + " " + (i.finish || "")).includes(search))).sort((a, b) => (a.name + a.finish).localeCompare(b.name + b.finish, "he"));
+  const low = items.filter(i => (Number(i.stock) || 0) <= (Number(i.minStock) || 0) && (Number(i.minStock) || 0) > 0);
+  const negative = items.filter(i => (Number(i.stock) || 0) < 0);
+  const cell = {
+    padding: "8px 10px"
+  };
+  return h("div", null, h("div", {
     style: {
       display: "flex",
       justifyContent: "space-between",
       alignItems: "center",
-      marginBottom: 16,
+      marginBottom: 12,
       flexWrap: "wrap",
       gap: 10
     }
-  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("h2", {
+  }, h("div", null, h("h2", {
     style: {
       margin: 0,
       fontSize: 22,
       fontWeight: 700
     }
-  }, "\u05DE\u05DC\u05D0\u05D9"), /*#__PURE__*/React.createElement("p", {
+  }, "מלאי"), h("p", {
     style: {
       margin: "4px 0 0",
-      fontSize: 14,
+      fontSize: 13,
       color: colors.textLight
     }
-  }, inventory.length, " \u05E4\u05E8\u05D9\u05D8\u05D9\u05DD \u2014 \u05E9\u05D5\u05D5\u05D9: \u20AA", totalValue.toLocaleString(), " \u2014 ", /*#__PURE__*/React.createElement("span", {
+  }, "פרזול יורד אוטומטית כשמנהל שולח הזמנה לייצור (לפי השרטוט השמור). ", low.length > 0 && h("span", {
     style: {
-      color: lowStockCount > 0 ? colors.danger : colors.success
+      color: colors.danger,
+      fontWeight: 700
     }
-  }, lowStockCount, " \u05D4\u05EA\u05E8\u05D0\u05D5\u05EA"))), /*#__PURE__*/React.createElement(Button, null, Icons.plus, " \u05D4\u05D5\u05E1\u05E3 \u05E4\u05E8\u05D9\u05D8")), /*#__PURE__*/React.createElement("div", {
+  }, low.length, " פריטים מתחת למינימום. "), negative.length > 0 && h("span", {
+    style: {
+      color: colors.danger,
+      fontWeight: 700
+    }
+  }, negative.length, " פריטים במינוס — כדאי לעשות ספירה."))), h(Button, {
+    onClick: () => setForm({
+      kind: tab,
+      name: "",
+      finish: tab === "hardware" ? FINISHES[0] : "",
+      stock: "",
+      minStock: ""
+    })
+  }, Icons.plus, " הוסף פריט")), h("div", {
     style: {
       display: "flex",
-      gap: 10,
-      marginBottom: 16,
+      gap: 8,
+      marginBottom: 12,
       flexWrap: "wrap"
     }
-  }, /*#__PURE__*/React.createElement(SearchBar, {
+  }, h(Button, {
+    size: "sm",
+    variant: tab === "hardware" ? "primary" : "outline",
+    onClick: () => setTab("hardware")
+  }, "פרזול"), h(Button, {
+    size: "sm",
+    variant: tab === "model" ? "primary" : "outline",
+    onClick: () => setTab("model")
+  }, "מקלחונים סטנדרט"), h(SearchBar, {
     value: search,
     onChange: setSearch,
-    placeholder: "\u05D7\u05D9\u05E4\u05D5\u05E9 \u05E4\u05E8\u05D9\u05D8\u05D9\u05DD..."
-  }), categories.map(c => /*#__PURE__*/React.createElement(Button, {
-    key: c,
-    variant: catFilter === c ? "primary" : "outline",
+    placeholder: "חיפוש..."
+  })), form && h(Card, {
+    style: {
+      marginBottom: 12,
+      display: "flex",
+      gap: 8,
+      flexWrap: "wrap",
+      alignItems: "flex-end"
+    }
+  }, h("label", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      fontSize: 12,
+      gap: 4
+    }
+  }, "סוג", h("select", {
+    value: form.kind,
+    onChange: e => setForm({
+      ...form,
+      kind: e.target.value
+    })
+  }, h("option", {
+    value: "hardware"
+  }, "פרזול"), h("option", {
+    value: "model"
+  }, "מקלחון סטנדרט"))), h("label", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      fontSize: 12,
+      gap: 4
+    }
+  }, form.kind === "hardware" ? "פריט" : "דגם", h("input", {
+    list: "hwNames",
+    value: form.name,
+    onChange: e => setForm({
+      ...form,
+      name: e.target.value
+    })
+  }), h("datalist", {
+    id: "hwNames"
+  }, HARDWARE_NAMES.map(n => h("option", {
+    key: n,
+    value: n
+  })))), h("label", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      fontSize: 12,
+      gap: 4
+    }
+  }, "גימור", h("select", {
+    value: form.finish,
+    onChange: e => setForm({
+      ...form,
+      finish: e.target.value
+    })
+  }, h("option", {
+    value: ""
+  }, "—"), FINISHES.map(f => h("option", {
+    key: f,
+    value: f
+  }, f)))), h("label", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      fontSize: 12,
+      gap: 4
+    }
+  }, "כמות במלאי", h("input", {
+    type: "number",
+    style: {
+      width: 90
+    },
+    value: form.stock,
+    onChange: e => setForm({
+      ...form,
+      stock: e.target.value
+    })
+  })), h("label", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      fontSize: 12,
+      gap: 4
+    }
+  }, "מינימום", h("input", {
+    type: "number",
+    style: {
+      width: 90
+    },
+    value: form.minStock,
+    onChange: e => setForm({
+      ...form,
+      minStock: e.target.value
+    })
+  })), h(Button, {
     size: "sm",
-    onClick: () => setCatFilter(c)
-  }, c === "all" ? "הכל" : c))), /*#__PURE__*/React.createElement(Card, {
+    onClick: saveNew,
+    disabled: busy
+  }, "שמור"), h(Button, {
+    size: "sm",
+    variant: "outline",
+    onClick: () => setForm(null)
+  }, "ביטול")), h(Card, {
     style: {
       padding: 0,
-      overflow: "hidden"
+      overflow: "auto"
     }
-  }, /*#__PURE__*/React.createElement("table", {
+  }, list.length === 0 ? h("div", {
+    style: {
+      padding: 20,
+      textAlign: "center",
+      color: colors.textMuted,
+      fontSize: 13
+    }
+  }, tab === "hardware" ? "אין עדיין פריטי פרזול. הוסף פריטים עם הכמות שיש לך במלאי — או שהם ייווצרו אוטומטית בשליחה הראשונה לייצור." : "אין עדיין מקלחוני סטנדרט במלאי. לחץ \"הוסף פריט\".") : h("table", {
     style: {
       width: "100%",
       borderCollapse: "collapse",
       fontSize: 13
     }
-  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", {
+  }, h("thead", null, h("tr", {
     style: {
       background: colors.bg,
       textAlign: "right"
     }
-  }, ["פריט", "מק״ט", "קטגוריה", "מלאי", "מינימום", "סטטוס", "עלות", "שווי"].map(h => /*#__PURE__*/React.createElement("th", {
-    key: h,
+  }, ["פריט", "גימור", "במלאי", "מינימום", "סטטוס", ""].map(t => h("th", {
+    key: t,
     style: {
-      padding: "10px 14px",
+      ...cell,
       fontWeight: 600,
       color: colors.textLight,
       fontSize: 12
     }
-  }, h)))), /*#__PURE__*/React.createElement("tbody", null, filtered.map(item => {
-    const isLow = item.stock <= item.minStock;
-    const isCrit = item.stock <= item.minStock * 0.5;
-    return /*#__PURE__*/React.createElement("tr", {
-      key: item.id,
+  }, t)))), h("tbody", null, list.map(it => {
+    const st = Number(it.stock) || 0,
+      mn = Number(it.minStock) || 0;
+    const isLow = mn > 0 && st <= mn,
+      isNeg = st < 0;
+    return h("tr", {
+      key: it.id,
       style: {
         borderBottom: `1px solid ${colors.border}`,
-        background: isCrit ? colors.dangerLight + "40" : isLow ? colors.warningLight + "40" : "transparent"
+        background: isNeg || isLow ? colors.warningLight + "40" : "transparent"
       }
-    }, /*#__PURE__*/React.createElement("td", {
+    }, h("td", {
       style: {
-        padding: "10px 14px",
+        ...cell,
         fontWeight: 600
       }
-    }, item.name), /*#__PURE__*/React.createElement("td", {
+    }, it.name), h("td", {
+      style: cell
+    }, it.finish || "—"), h("td", {
       style: {
-        padding: "10px 14px",
-        color: colors.textMuted,
-        fontFamily: "monospace",
-        fontSize: 12,
-        direction: "ltr",
-        textAlign: "right"
-      }
-    }, item.sku), /*#__PURE__*/React.createElement("td", {
-      style: {
-        padding: "10px 14px"
-      }
-    }, /*#__PURE__*/React.createElement("span", {
-      style: {
-        padding: "2px 8px",
-        borderRadius: 4,
-        fontSize: 11,
-        fontWeight: 600,
-        background: "#f1f5f9",
-        color: colors.textLight
-      }
-    }, item.category)), /*#__PURE__*/React.createElement("td", {
-      style: {
-        padding: "10px 14px",
+        ...cell,
         fontWeight: 700,
-        color: isCrit ? colors.danger : isLow ? colors.warning : colors.text
+        color: isNeg ? colors.danger : isLow ? colors.warning : colors.text
       }
-    }, item.stock, " ", item.unit), /*#__PURE__*/React.createElement("td", {
+    }, st), h("td", {
       style: {
-        padding: "10px 14px",
-        color: colors.textMuted
-      }
-    }, item.minStock), /*#__PURE__*/React.createElement("td", {
-      style: {
-        padding: "10px 14px"
-      }
-    }, isCrit ? /*#__PURE__*/React.createElement("span", {
+        ...cell,
+        color: colors.textMuted,
+        cursor: "pointer"
+      },
+      title: "לחץ לשינוי",
+      onClick: () => setMin(it)
+    }, mn || "—"), h("td", {
+      style: cell
+    }, isNeg ? h("span", {
       style: {
         color: colors.danger,
         fontWeight: 600,
         fontSize: 12
       }
-    }, "\u05E7\u05E8\u05D9\u05D8\u05D9") : isLow ? /*#__PURE__*/React.createElement("span", {
+    }, "במינוס") : isLow ? h("span", {
       style: {
         color: colors.warning,
         fontWeight: 600,
         fontSize: 12
       }
-    }, "\u05E0\u05DE\u05D5\u05DA") : /*#__PURE__*/React.createElement("span", {
+    }, "נמוך") : h("span", {
       style: {
         color: colors.success,
         fontWeight: 600,
         fontSize: 12
       }
-    }, "\u05EA\u05E7\u05D9\u05DF")), /*#__PURE__*/React.createElement("td", {
+    }, "תקין")), h("td", {
       style: {
-        padding: "10px 14px"
+        ...cell,
+        whiteSpace: "nowrap"
       }
-    }, "\u20AA", item.cost), /*#__PURE__*/React.createElement("td", {
-      style: {
-        padding: "10px 14px",
-        fontWeight: 600
-      }
-    }, "\u20AA", (item.stock * item.cost).toLocaleString()));
-  })))));
+    }, h(Button, {
+      size: "sm",
+      variant: "outline",
+      disabled: busy,
+      onClick: () => adjust(it, -1, "הוצאה ידנית")
+    }, "−1"), " ", h(Button, {
+      size: "sm",
+      variant: "outline",
+      disabled: busy,
+      onClick: () => adjust(it, 1, "קבלת סחורה")
+    }, "+1"), " ", h(Button, {
+      size: "sm",
+      variant: "outline",
+      disabled: busy,
+      onClick: () => setCount(it)
+    }, "ספירה")));
+  })))), h("h3", {
+    style: {
+      fontSize: 15,
+      margin: "18px 0 8px"
+    }
+  }, "תנועות אחרונות"), h(Card, {
+    style: {
+      padding: 10,
+      fontSize: 12
+    }
+  }, moves.length === 0 ? h("div", {
+    style: {
+      color: colors.textMuted
+    }
+  }, "אין תנועות עדיין.") : moves.map((m, i) => h("div", {
+    key: i,
+    style: {
+      padding: "4px 0",
+      borderBottom: i < moves.length - 1 ? `1px solid ${colors.border}` : "none"
+    }
+  }, (m.at || "").slice(0, 16).replace("T", " "), " — ", h("b", null, m.qty > 0 ? "+" + m.qty : m.qty), " ", m.name, m.finish ? " (" + m.finish + ")" : "", " — ", m.reason, m.orderId ? " · " + m.orderId : ""))));
 };
 
 // ─── Reports Page (Admin only) ───────────────────────────────────────────────

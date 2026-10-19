@@ -1657,10 +1657,16 @@ try{ const t=localStorage.getItem('bl_tab'); if(t&&$('tab-'+t)) document.querySe
         warnings: c.warns.slice(0, 10),
         snapshot
       };
+      // production cost for the office (same calculation as the cost tab — nothing recalculated here)
+      try {
+        const b = costBreakdown(c);
+        item.cost = { total: Math.round(b.total), missing: !!b.missing, rows: b.rows.map(r => ({ name: r.name, qty: r.qty, unit: r.unit, sum: r.sum == null ? null : Math.round(r.sum) })) };
+      } catch (err) { item.cost = null; }
+      item.finish = O.finish || '';
       let quote = null;
       if (Q && Q.items && Q.items.length) {
         const t = quoteTotals();
-        // customer price only — private costs and profit never leave the drawing system
+        // customer price (profit is not sent)
         quote = { no: Q.no || '', total: t.total, incVat: t.incVat, install: t.inst, discount: t.disc, items: Q.items.length, missingPrices: !!t.missing };
       }
       $('blSaveDrawing').disabled = true; msg('שומר…');
