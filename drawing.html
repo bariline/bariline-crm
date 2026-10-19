@@ -1,0 +1,1681 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>html{color-scheme:light}body{margin:0;font:14px system-ui}img{max-width:100%}[hidden]{display:none!important}</style>
+</head>
+<body>
+<title>שרטוטי בריליין</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Heebo:wght@400;500;700;800&display=swap">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<style>
+:root{
+  --bg:#f3f5f6; --panel:#ffffff; --ink:#15212b; --muted:#5d6d78; --line:#d5dde2;
+  --accent:#0e7c86; --accent-ink:#ffffff; --accent-soft:#e0f2f3; --warn:#b4540a; --warn-soft:#fdf0e3;
+  --ok:#2c7a3f; --paper:#ffffff; --paper-ink:#111111;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    color-scheme:dark;
+    --bg:#131a1f; --panel:#1c252c; --ink:#e8eef1; --muted:#9fb0ba; --line:#2f3d46;
+    --accent:#3fb7c1; --accent-ink:#0b1a1c; --accent-soft:#183a3e; --warn:#f0a35a; --warn-soft:#3a2a17;
+    --ok:#6fcf84;
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --bg:#131a1f; --panel:#1c252c; --ink:#e8eef1; --muted:#9fb0ba; --line:#2f3d46;
+  --accent:#3fb7c1; --accent-ink:#0b1a1c; --accent-soft:#183a3e; --warn:#f0a35a; --warn-soft:#3a2a17;
+  --ok:#6fcf84;
+}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:"Heebo",Arial,sans-serif;font-size:14px;direction:rtl;padding-inline:16px;padding-block:12px 40px;margin:0}
+h1{font-size:20px;font-weight:800;margin:0}
+h2{font-size:15px;font-weight:700;margin:0 0 8px}
+.top{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:12px}
+.top .sub{color:var(--muted);font-size:13px}
+.layout{display:grid;grid-template-columns:400px minmax(0,1fr);gap:16px;align-items:start}
+@media (max-width:900px){.layout{grid-template-columns:1fr}}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px}
+.panel+.panel{margin-top:12px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
+label{display:flex;flex-direction:column;gap:3px;font-size:12px;color:var(--muted)}
+input,select,textarea{font:inherit;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:6px 8px;min-width:0;width:100%}
+input[type=number]{font-variant-numeric:tabular-nums}
+textarea{min-height:90px;resize:vertical}
+button{font:inherit;cursor:pointer;border-radius:7px;border:1px solid var(--line);background:var(--panel);color:var(--ink);padding:7px 12px}
+button.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);font-weight:700}
+button.small{padding:3px 8px;font-size:12px}
+button.ghost{background:transparent}
+button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.side{border:1px solid var(--line);border-radius:8px;padding:10px;margin-top:10px;background:var(--bg)}
+.side-head{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px}
+.side-head b{font-size:13px}
+.el{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:8px;margin-top:8px}
+.el-head{display:flex;justify-content:space-between;align-items:center;gap:6px;margin-bottom:6px}
+.chip{display:inline-block;padding:2px 8px;border-radius:99px;font-size:11px;font-weight:700;background:var(--accent-soft);color:var(--accent)}
+.chip.door{background:#fbe9d7;color:#8a4a0f}
+:root[data-theme="dark"] .chip.door{background:#3a2a17;color:#f0a35a}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]) .chip.door{background:#3a2a17;color:#f0a35a}}
+.tabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin-bottom:12px;flex-wrap:wrap}
+.tabs button{border:none;border-bottom:3px solid transparent;border-radius:0;background:transparent;padding:8px 12px;font-weight:600;color:var(--muted)}
+.tabs button.active{color:var(--accent);border-bottom-color:var(--accent)}
+.sheet{background:var(--paper);border:1px solid var(--line);border-radius:6px;overflow:auto;box-shadow:0 1px 3px rgba(0,0,0,.08)}
+.sheet svg{display:block;width:100%;height:auto;max-width:900px;margin:0 auto}
+.actions{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;align-items:center}
+.msg{font-size:12px;color:var(--muted)}
+.warns{margin:0 0 10px;padding:8px 10px;border-radius:8px;background:var(--warn-soft);color:var(--warn);font-size:13px;display:none}
+.warns.show{display:block}
+.calc{width:100%;border-collapse:collapse;font-size:13px;margin-top:6px}
+.calc th,.calc td{border-bottom:1px solid var(--line);padding:5px 6px;text-align:right;font-variant-numeric:tabular-nums}
+.calc th{color:var(--muted);font-weight:600;font-size:12px}
+.calc td.miss{color:#c0392b;font-weight:700}
+.settings-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px}
+.settings h3{font-size:13px;margin:16px 0 6px;color:var(--accent)}
+.settings h3:first-child{margin-top:0}
+.saved{display:flex;flex-direction:column;gap:6px;margin-top:8px}
+.saved-item{display:flex;justify-content:space-between;align-items:center;gap:6px;border:1px solid var(--line);border-radius:6px;padding:6px 8px;font-size:13px}
+.hint{font-size:11.5px;color:var(--muted);line-height:1.4}
+.altbox{display:inline-flex;flex-wrap:wrap;gap:4px 10px;vertical-align:middle}.altbox .chk{font-size:12px;display:inline-flex;flex-direction:row;align-items:center;gap:4px;cursor:pointer;margin:0;font-weight:normal}.altbox .chk input{width:auto;margin:0}.altbox .chk.nop{opacity:.45}
+.rec{border:1px solid var(--line);border-radius:8px;padding:8px;margin-top:8px;background:var(--bg)}
+.rec b{display:block;margin-bottom:4px}
+.rec .unc{color:var(--warn);font-size:12px;margin-top:4px}
+.qitem{border:1px solid var(--line);border-radius:8px;padding:8px;margin-top:8px;background:var(--bg)}
+.qitem .desc{font-size:12.5px;color:var(--muted);margin:4px 0}
+</style>
+
+<div class="top">
+  <div>
+    <h1>שרטוטי בריליין</h1>
+    <div class="sub">מטופס מדידה לשרטוט זכוכיות: מזינים את המידות, הכלי מחשב הורדות, פינויים וקדחים.</div>
+  </div>
+  <div class="row">
+    <select id="exampleSel" title="דוגמאות">
+      <option value="">טען דוגמה…</option>
+    </select>
+    <button id="btnNew">הזמנה חדשה</button>
+    <span id="cloudPill" class="chip" title="">מתחבר…</span>
+  </div>
+</div>
+
+<div class="layout">
+  <div>
+    <div class="panel" id="importPanel">
+      <h2>ייבוא טופס מדידה מתמונה</h2>
+      <div class="hint">העלה צילום של טופס המדידה (JPG / PNG). הכלי מזהה את התצורה והמידות ומציג אותן לאישור – בדוק מול הצילום ותקן לפני השימוש.</div>
+      <div class="row" style="margin-top:8px">
+        <input type="file" id="imgFile" accept="image/jpeg,image/png,image/webp" style="width:auto;flex:1">
+        <button id="btnRecognize" class="primary">זהה מידות</button>
+        <button id="btnStopRec" hidden>עצור</button>
+      </div>
+      <label style="margin-top:8px">רמז לזיהוי (לא חובה)<input id="recHint" type="text" placeholder="למשל: פינתי, הגובה 200, המספר למטה הוא 155.3"></label>
+      <img id="imgPreview" alt="" hidden style="max-width:100%;border-radius:6px;margin-top:8px;border:1px solid var(--line)">
+      <div id="recStatus" class="msg" style="margin-top:6px"></div>
+      <div id="recResult"></div>
+    </div>
+
+    <div class="panel" id="measurePanel">
+      <h2>ייבוא מדידה מהמתקין</h2>
+      <div class="hint">הדבק כאן את הקישור שהמתקין שלח בוואטסאפ (או את כל ההודעה) – המדידה נטענת לטופס וכל השרטוטים נבנים מיד.</div>
+      <div class="row" style="margin-top:8px"><input id="measureLink" type="text" placeholder="https://…/medida.html#m=z.…" style="flex:1"><button id="btnMeasureLoad" class="primary">טען</button></div>
+      <div id="measureMsg" class="msg" style="margin-top:4px"></div>
+    </div>
+
+    <div class="panel">
+      <h2>פרטי הזמנה</h2>
+      <div class="grid2">
+        <label>מס' הזמנה<input id="f_no" type="text"></label>
+        <label>תאריך<input id="f_date" type="date"></label>
+        <label>לקוח<input id="f_customer" type="text"></label>
+        <label>חדר / הערה<input id="f_room" type="text" placeholder="חדר הורים"></label>
+        <label>חנות<input id="f_store" type="text" placeholder="בריליין / מקלחונליין"></label>
+        <label>דגם<div class="row" style="flex-wrap:nowrap"><input id="f_model" type="text" list="modelList" placeholder="אינדיאנה / טנסי / אוסטין"><button id="applyModel" class="small" hidden title="בנה את התצורה לפי הדגם">בנה תצורה</button></div><datalist id="modelList"></datalist><span class="hint" id="modelHint"></span></label>
+      </div>
+      <div class="grid3" style="margin-top:8px">
+        <label>זכוכית<select id="f_glass"></select></label>
+        <label>עובי (מ"מ)<select id="f_thick"><option>6</option><option selected>8</option><option>10</option></select></label>
+        <label>גובה (ס"מ)<input id="f_height" type="number" step="0.1" value="190"></label>
+      </div>
+      <div class="grid2" style="margin-top:8px">
+        <label>פרזול / גימור<input id="f_finish" type="text" placeholder="ניקל מבריק / צירים זהב מוברש"></label>
+        <label>הערה למפעל<input id="f_note" type="text" placeholder="דחוף!"></label>
+      </div>
+      <div class="grid2" style="margin-top:8px">
+        <label>צריבה מגובה (ס"מ מהרצפה, רק בבקשה מיוחדת)<input id="f_etchFrom" type="number" step="0.5" placeholder="ריק = רגיל"></label>
+        <label>צריבה עד גובה (ס"מ)<input id="f_etchTo" type="number" step="0.5" placeholder=""></label>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="row" style="justify-content:space-between">
+        <h2 style="margin:0">תצורת המקלחון</h2>
+      </div>
+      <div class="hint"><b>כפי שרואים את המקלחון מבחוץ.</b> בחזית (צד אחד) מזינים משמאל לימין. במקלחון פינתי מזינים בכל צד <b>מהקיר לכיוון הפינה</b>: בצד שמאל הפריט הראשון צמוד לקיר השמאלי, בצד ימין הפריט הראשון צמוד לקיר הימני. המידה היא ברוטו כמו בטופס המדידה.</div>
+      <div id="sides"></div>
+      <div class="row" style="margin-top:10px"><button id="btnAddLeft" class="small">+ צד משמאל</button><button id="btnAddRight" class="small">+ צד מימין</button></div>
+    </div>
+
+    <div class="panel">
+      <h2>שמירה</h2>
+      <div class="row">
+        <button id="btnSave" class="primary">שמור הזמנה בדפדפן</button>
+        <button id="btnExportJson">ייצוא קובץ הזמנה</button>
+        <label style="flex-direction:row;align-items:center;gap:6px;width:auto"><span>ייבוא</span><input id="importJson" type="file" accept=".json" style="width:auto"></label>
+      </div>
+      <div class="hint" style="margin-top:6px">הזמנות שנשמרות בדפדפן נשארות רק במחשב הזה. קובץ הזמנה אפשר לשלוח לעמית ולייבא.</div>
+      <div id="savedList" class="saved"></div>
+    </div>
+  </div>
+
+  <div>
+    <div class="panel">
+      <div class="tabs">
+        <button data-tab="factory" class="active">שרטוט למפעל</button>
+        <button data-tab="general">שרטוט למתקין + פרזול</button>
+        <button data-tab="calc">טבלת חישוב</button>
+        <button data-tab="settings">הגדרות וחוקים</button>
+        <button data-tab="cost">עלויות (פרטי)</button>
+        <button data-tab="quote">הצעת מחיר ללקוח</button>
+      </div>
+      <div id="warns" class="warns"></div>
+
+      <section id="tab-factory">
+        <div class="actions">
+          <button id="dlFactory" class="primary">הורד תמונה (PNG)</button>
+          <button id="cpFactory">העתק תמונה לוואטסאפ</button>
+          <button id="prFactory" title="פותח חלון הדפסה">🖨 הדפס</button>
+          <button id="dlBoth">הורד את שני הדפים</button>
+          <span class="msg" id="msgFactory"></span>
+        </div>
+        <div class="sheet" id="sheetFactory"></div>
+      </section>
+
+      <section id="tab-general" hidden>
+        <div class="actions">
+          <button id="dlGeneral" class="primary">הורד תמונה (PNG)</button>
+          <button id="cpGeneral">העתק תמונה</button>
+          <button id="prGeneral" title="פותח חלון הדפסה">🖨 הדפס</button>
+          <button id="dlMeasure" title="טופס המדידה עם חתימת הלקוח, כפי שנחתם אצל הלקוח">טופס מדידה חתום (PNG)</button>
+          <button id="prMeasure" title="הדפסת טופס המדידה החתום">🖨 הדפס טופס חתום</button>
+          <span class="msg" id="msgGeneral"></span>
+        </div>
+        <label style="margin-bottom:10px">רשימת פרזול (מחושבת אוטומטית, אפשר לערוך לפני ההורדה)<textarea id="hwText"></textarea></label>
+        <div class="row" style="margin-bottom:10px"><button id="hwReset" class="small">חשב מחדש את הפרזול</button></div>
+        <div class="sheet" id="sheetGeneral"></div>
+      </section>
+
+      <section id="tab-calc" hidden>
+        <div class="hint">כל זכוכית, איך חושבה, ומה מסומן עליה.</div>
+        <table class="calc" id="calcTable"></table>
+      </section>
+
+      <section id="tab-quote" hidden>
+        <div class="panel" style="padding:10px">
+          <div class="row" style="justify-content:space-between"><h2 style="margin:0">הצעת מחיר <span id="qNo" class="chip"></span></h2><div class="row"><button id="qNew" class="small">הצעה חדשה</button><select id="qSaved" class="small" style="width:auto"><option value="">הצעות שמורות…</option></select></div></div>
+          <div class="grid3" style="margin-top:8px">
+            <label>שם הלקוח<input id="q_name" type="text"></label>
+            <label>טלפון (וואטסאפ)<input id="q_phone" type="text" placeholder="0501234567"></label>
+            <label>כתובת<input id="q_address" type="text"></label>
+            <label>תאריך<input id="q_date" type="date"></label>
+            <label>בתוקף עד<input id="q_valid" type="date"></label>
+            <label>הנחה (₪, על כל ההצעה)<input id="q_discount" type="number" step="1" placeholder="0"></label>
+          </div>
+          <div class="row" style="margin-top:8px;align-items:center">
+            <label style="flex-direction:row;align-items:center;gap:6px;width:auto"><span>לוגו</span><input id="q_logo" type="file" accept="image/*" style="width:auto"></label>
+            <div id="q_logoDrop" tabindex="0" contenteditable="true" style="border:1px dashed var(--line);border-radius:6px;padding:6px 10px;font-size:12px;color:var(--muted);min-width:180px;outline:none" title="לחץ כאן ואז Ctrl+V / Cmd+V, או גרור תמונה">או לחץ כאן והדבק (Ctrl+V) / גרור לוגו</div>
+            <img id="q_logoPrev" alt="" hidden style="height:40px;border:1px solid var(--line);border-radius:4px">
+            <button id="q_logoClear" class="small ghost" hidden>הסר לוגו</button>
+            <span class="hint">פרטי העסק, מע"מ ומחירי התקנה – בטאב "הגדרות וחוקים".</span>
+          </div>
+        </div>
+        <div class="panel" style="padding:10px;margin-top:10px">
+          <div class="row" style="justify-content:space-between"><h2 style="margin:0">מקלחונים בהצעה</h2><button id="qAddCurrent" class="primary">+ הוסף את המקלחון שבטופס</button></div>
+          <div class="hint">בונים כל מקלחון בטופס משמאל (צדדים, מידות, זכוכית, פרזול, דגם) ולוחצים "הוסף". אפשר להוסיף כמה מקלחונים; לכל אחד רווח משלו.</div>
+          <div id="qItems"></div>
+          <table class="calc" id="qTotals" style="margin-top:10px"></table>
+        </div>
+        <div class="panel" style="padding:10px;margin-top:10px">
+          <div class="actions">
+            <button id="qSave" class="primary">שמור הצעה</button>
+            <button id="qPdf">הורד PDF ללקוח</button>
+            <button id="qShare" hidden style="background:#dff3e4">📲 שלח PDF + טקסט בוואטסאפ</button>
+            <a id="qWa" class="small" hidden target="_blank" rel="noopener" style="border:1px solid var(--line);border-radius:7px;padding:5px 10px;text-decoration:none;color:var(--ink);background:#dff3e4">📲 שלח טקסט בוואטסאפ (PDF מצרפים ידנית)</a>
+            <span class="msg" id="qMsg"></span>
+          </div>
+          <label>תנאים והערות (מופיע בהצעה)<textarea id="q_terms"></textarea></label>
+          <div class="hint" style="margin-top:6px">ה-PDF יורד למחשב; בוואטסאפ מצרפים אותו ידנית אחרי שההודעה הכתובה נפתחת.</div>
+          <div class="sheet" id="qPreview" style="margin-top:10px"></div>
+        </div>
+      </section>
+
+      <section id="tab-cost" hidden>
+        <div class="hint" style="margin-bottom:8px" id="costStorageHint">אזור פרטי: העלויות לא מופיעות באף שרטוט ולא נשלחות לאף אחד.</div>
+        <div class="panel" style="padding:10px">
+          <div class="row" style="justify-content:space-between"><h2 style="margin:0">עלות ההזמנה הנוכחית</h2><div class="row"><button id="costLog" class="primary">רשום לחודש</button><a id="waReport" class="small" hidden target="_blank" rel="noopener" style="border:1px solid var(--line);border-radius:7px;padding:5px 10px;text-decoration:none;color:var(--ink);background:#dff3e4">📲 שלח דיווח בוואטסאפ</a></div></div>
+          <div class="row" style="margin:6px 0"><label style="flex-direction:row;align-items:center;gap:6px;width:auto">קבוצת פרזול<select id="finishGroup" style="width:auto"><option value="auto">אוטומטי לפי הגימור</option><option value="std">ניקל / כרום / מוברש</option><option value="gold">גרפיט / זהב</option></select></label><span class="msg" id="modelHit"></span></div>
+          <table class="calc" id="costTable"></table>
+          <div id="costTotal" style="font-weight:800;font-size:16px;margin-top:8px;font-variant-numeric:tabular-nums"></div>
+          <div class="hint">"רשום לחודש" שומר את העלות ברשימה החודשית. גם הורדה או העתקה של השרטוט למפעל רושמות אותה אוטומטית (הזמנה עם אותו מספר/לקוח/חדר מתעדכנת ולא נכפלת).</div>
+        </div>
+        <div class="panel" style="padding:10px;margin-top:10px">
+          <div class="row" style="justify-content:space-between"><h2 style="margin:0">רישום חודשי</h2><div class="row"><select id="costMonth"></select><button id="costExport" class="small">ייצוא לאקסל (CSV)</button></div></div>
+          <table class="calc" id="costLogTable"></table>
+          <div id="costMonthTotal" style="font-weight:800;margin-top:8px;font-variant-numeric:tabular-nums"></div>
+        </div>
+        <div class="panel settings" style="padding:10px;margin-top:10px">
+          <h2>מחירון</h2>
+          <div class="hint">מחירי קנייה שלך. זכוכית לפי מ"ר לכל סוג ועובי; פרזול ליחידה; עיבודים לכל פריט. שדה ריק = 0 ומסומן באדום בטבלת העלות.</div>
+          <h3>זכוכית (₪ למ"ר)</h3><div class="settings-grid" id="priceGlass"></div>
+          <h3>עיבודי זכוכית (₪ ליחידה)</h3><div class="settings-grid" id="priceProc"></div>
+          <h3>פרזול לפי דגם (₪ לסט צירים וגומיות למקלחון)</h3>
+          <div class="hint">עמודה ראשונה: ניקל / כרום / ניקל מוברש. עמודה שנייה: גרפיט / זהב. כשהדגם בהזמנה נמצא כאן – הפרזול מחושב לפי הדגם ולא לפי פריטים.</div>
+          <table class="calc" id="priceModels"></table>
+          <div class="row" style="margin-top:6px"><input id="newModelName" type="text" placeholder="דגם חדש" style="width:160px"><button id="addModel" class="small">+ הוסף דגם</button></div>
+          <h3>פרזול לפי פריט (₪ ליחידה) – רק לדגם שלא בטבלה</h3>
+          <div class="hint">ניקל / כרום / מוברש:</div><div class="settings-grid" id="priceHw"></div>
+          <div class="hint" style="margin-top:8px">גרפיט / זהב:</div><div class="settings-grid" id="priceHwG"></div>
+          <div class="row" style="margin-top:8px"><button id="priceExport" class="small">ייצוא מחירון</button><label style="flex-direction:row;align-items:center;gap:6px;width:auto"><span>ייבוא מחירון</span><input id="priceImport" type="file" accept=".json" style="width:auto"></label></div>
+        </div>
+      </section>
+
+      <section id="tab-settings" hidden class="settings">
+        <div class="hint">כל המספרים כאן הם "הנוסחה". שינוי נשמר בדפדפן הזה ומשפיע מיד על כל השרטוטים.</div>
+        <div id="settingsForm"></div>
+        <div class="row" style="margin-top:14px"><button id="settingsReset">החזר לברירות המחדל</button></div>
+      </section>
+    </div>
+  </div>
+</div>
+
+<script>
+const STANDALONE = true; // the standalone build flips this to true
+/* ---------------- settings (the "formula") ---------------- */
+const DEFAULT_SETTINGS = {
+  factoryName: 'אחים לוז',
+  factoryLine2: 'בריליין 0502219906',
+  factoryNote1: 'זכוכית {thick} מ"מ מחוסמת',
+  factoryNote2: 'ליטוש יהלום בזכוכית',
+  defaultHeight: 190, bathHeight: 140, maxHeight: 210,
+  measureTerms: 'לקוח נכבד – הזמנתך מיוצרת עבורך על פי מידות ייחודיות להזמנתך.\nההזמנה אינה ניתנת לביטול ו/או שינוי לאחר ביצוע המדידה וחתימת הלקוח.\nזמן אספקה משוער למקלחון שקוף 21 ימי עבודה מיום אישור לקוח (לא כולל ימי שישי, שבת, ערבי חג וחגים). כל שינוי מזכוכית שקופה ו/או גובה מיוחד ו/או חיתוך מיוחד מאריך את זמן האספקה בכ-5 ימי עבודה. החברה אינה אחראית על שבר קרמיקה ו/או קדח בצינור מים / חשמל / גז בהתקנת מקלחון חדש ו/או בפירוק מקלחון ישן. באחריות הלקוח לעדכן קווי מים / חשמל / גז וכו\'!\nהתקנה ללא אגנית ו/או סף ו/או התזה ישירה על צירי וחיבורי המקלחון אינה מאפשרת אטימה אופטימלית ולכן תיתכן יציאת מים (זכור – המקלחון אינו אקווריום). מומלץ לנקות את כל חלקי המקלחון בחומץ הדרים 5% (פשוט ויעיל).\nמידות המקלחון הן מידות ברוטו, סטייה במידה או בגובה עשויה לנבוע כתוצאה מתנאי השטח.',
+  balloon: 0.8,          // מגב בלון
+  magnetCorner: 1.2,     // מגנט פינתי (דלת מול דלת)
+  magnetStraight: 1.0,   // מגנט ישר (דלת מול קבוע/קיר)
+  fixedMagnetDeduct: 1.0,// הורדה לקבוע שדלת נסגרת עליו במגנט ישר
+  fixedCornerMagnetDeduct: 0, // הורדה לקבוע שדלת נסגרת עליו במגנט פינתי (מעבר לפינה)
+  towelHoleMm: 10, towelEdge: 10, // ידית מגבת: קוטר, ומרחק ברירת מחדל מכל קצה
+  doorHeightDeduct: 1.5, // גומי תחתון
+  harmChair: 0.8,        // מגב כסא בהרמוניקה
+  harmMagnet: 1.2,       // מגנט בהרמוניקה
+  harmInnerExtra: 5,     // הכנף הפנימית גדולה ב-X ס"מ מהחיצונית
+  stepExtraW: 0.2, stepExtraH: 0.2,
+  handleHoleMm: 10, handleFromEdge: 6,
+  harmHoleMm: 18, harmHoleFromEdge: 2.4, harmHoleGap: 4,
+  glassTypes: 'שקופה,גלינה,פסים,גרניט,אסיד,אקסטרה קליר,אסיד אקסטרה קליר,גלינה אקסטרה,גלינה פרל אקסטרה קליר,פיפיטה,אנטי סאן אפור,ברונזה חום,פרוסטד',
+  apiKey:'', apiModel:'claude-sonnet-4-5',
+  reportPhone:'0504941658',
+  bizName:'מקלחונליין', bizPhone:'0504941658', bizAddress:'', bizEmail:'', logo:'', vat:18, install6:500, install8:550, installIncVat:true, markupDefault:100, markupTypeDefault:'pct', roundTo:10, quoteValidDays:14, quoteCounter:1000,
+  altGlassDefault:'', warrantyText:'הצירים והפרזול מפליז מלא · 7 שנות אחריות על הצירים', installNote:'מדידה, הובלה והרכבה – לתשלום למתקין במעמד ההתקנה',
+  quoteTerms:'זמן אספקה משוער: 21 ימי עבודה מיום אישור ההזמנה.\nהזכוכית מחוסמת בעובי הנבחר, ליטוש יהלום.\nהמחירים כוללים מע"מ. ההצעה בתוקף למועד הרשום.',
+  hwHingeWall:'ציר זכוכית קיר', hwHingeGlass:'ציר זכוכית זכוכית', hwHingeCorner:'ציר פינה',
+  hwHarmHinge:'ציר הרמוניקה', hwHandle:'ידית', hwMagnetCorner:'מגנט פינתי', hwMagnetStraight:'מגנט ישר',
+  hwBalloon:'מגב בלון', hwBottom:'מגב תחתון', hwChair:'מגב כסא', hwSill:'סף', hwAngle:'חיבור זווית', hwBar:'מוט תמיכה'
+};
+const SETTINGS_META = [
+  ['כותרת למפעל הזכוכית', [['factoryName','שם המפעל'],['factoryLine2','שורה שנייה (חברה + טלפון)'],['factoryNote1','הערה 1 ({thick} = עובי)'],['factoryNote2','הערה 2']]],
+  ['גבהים', [['defaultHeight','גובה ברירת מחדל (ס"מ)','n'],['bathHeight','גובה סטנדרט לאמבטיון (ס"מ)','n'],['maxHeight','גובה מקסימלי לאזהרה','n'],['doorHeightDeduct','הורדת גובה לדלת (גומי תחתון)','n']]],
+  ['הורדות רוחב', [['balloon','מגב בלון','n'],['magnetCorner','מגנט פינתי (דלת מול דלת)','n'],['magnetStraight','מגנט ישר (דלת מול קבוע/קיר)','n'],['fixedMagnetDeduct','הורדה לקבוע עם מגנט ישר','n'],['fixedCornerMagnetDeduct','הורדה לקבוע עם מגנט פינתי','n'],['harmChair','מגב כסא (הרמוניקה)','n'],['harmMagnet','מגנט (הרמוניקה)','n'],['harmInnerExtra','הרמוניקה: תוספת לכנף הפנימית','n']]],
+  ['מדרגה בקבוע', [['stepExtraW','תוספת לרוחב המדרגה','n'],['stepExtraH','תוספת לגובה המדרגה','n']]],
+  ['קדחים', [['handleHoleMm','קדח ידית (מ"מ)','n'],['handleFromEdge','מרחק ידית מהקצה (ס"מ)','n'],['harmHoleMm','קדח ציר הרמוניקה (מ"מ)','n'],['harmHoleFromEdge','מרחק מהקצה (ס"מ)','n'],['harmHoleGap','מרחק בין 2 הקדחים (ס"מ)','n'],['towelHoleMm','קדח ידית מגבת (מ"מ)','n'],['towelEdge','ידית מגבת: מרחק ברירת מחדל מכל קצה (ס"מ)','n']]],
+  ['רשימות', [['glassTypes','סוגי זכוכית (מופרד בפסיק)']]],
+  ['דיווח בוואטסאפ על רישום הזמנה', [['reportPhone','מספר וואטסאפ לדיווח (למשל 0501234567)']]],
+  ['הצעת מחיר – פרטי העסק', [['bizName','שם העסק'],['bizPhone','טלפון'],['bizAddress','כתובת'],['bizEmail','אימייל']]],
+  ['הצעת מחיר – מחירים', [['vat','מע"מ (%)','n'],['install6','התקנה ל-6 מ"מ (₪)','n'],['install8','התקנה ל-8 מ"מ (₪)','n'],['markupDefault','רווח ברירת מחדל','n'],['markupTypeDefault','סוג רווח ברירת מחדל: pct (אחוז) או amt (₪)'],['roundTo','עיגול מחיר ל- (0 = ללא)','n'],['quoteValidDays','תוקף ההצעה (ימים)','n'],['quoteCounter','מספר ההצעה הבא','n'],['altGlassDefault','תוספות זכוכית שיסומנו אוטומטית בכל הצעה חדשה (ריק = רק מה שתסמן; מופרד בפסיקים)'],['warrantyText','שורת אחריות/פרזול (מודגשת בהצעה)'],['installNote','הערת התקנה (ליד מחיר ההתקנה)']]],
+  ['טופס מדידה', [['measureTerms','תנאי המדידה (מודפסים בטופס המדידה החתום ובדף המתקין)','ta']]],
+  ['זיהוי תמונה (רק בגרסה העצמאית, מחוץ ל-Claude)', [['apiKey','מפתח API של Anthropic (נשמר במחשב הזה בלבד)'],['apiModel','שם המודל']]],
+  ['שמות פרזול', [['hwHingeWall',''],['hwHingeGlass',''],['hwHingeCorner',''],['hwHarmHinge',''],['hwHandle',''],['hwMagnetCorner',''],['hwMagnetStraight',''],['hwBalloon',''],['hwBottom',''],['hwChair',''],['hwSill',''],['hwAngle',''],['hwBar','']]]
+];
+let S = loadSettings();
+function loadSettings(){ try{ const j=JSON.parse(localStorage.getItem('bl_settings')||'null'); return Object.assign({},DEFAULT_SETTINGS,j||{}); }catch(e){ return {...DEFAULT_SETTINGS}; } }
+function saveSettings(){ try{ localStorage.setItem('bl_settings',JSON.stringify(S)); }catch(e){} if(typeof fileSaveAll==='function') fileSaveAll('settings'); }
+
+/* ---------------- order model ---------------- */
+let uid = 1;
+const newEl = (type,w)=>({id:uid++, type, w:w||0, dev:null, devSide:'auto', hinge:'auto', extraHinge:false, towel:false, towelL:null, towelR:null, towelY:null, stepW:null, stepH:null, stepSide:'auto', stepMeasured:'full'});
+function newOrder(){
+  return { no:'', date:new Date().toISOString().slice(0,10), customer:'', room:'', store:'', model:'', glass:'שקופה', thick:'8', height:S.defaultHeight, finish:'', note:'', etchFrom:'', etchTo:'',
+    sides:[], hwText:null };
+}
+let O = newOrder();
+
+const EXAMPLES = {
+  nitzan:{ label:'ניצן 4043 – אינדיאנה פינתי (2 דלתות + קבוע)', o:{no:'4043',date:'2026-09-14',customer:'ניצן',room:'',store:'מקלחונליין',model:'אינדיאנה',glass:'שקופה',thick:'8',height:190,finish:'ניקל מבריק',note:'דחוף!!!!',
+    sides:[{els:[{type:'door',w:50},{type:'door',w:50}]},{els:[{type:'fixed',w:120}]}]}},
+  a4032:{ label:'אביבית 4032 – טנסי חזית (קבוע + דלת)', o:{no:'4032',date:'2026-08-26',customer:'אביבית',room:'חדר אלמוג',store:'',model:'טנסי',glass:'גלינה',thick:'8',height:190,finish:'צירים זהב מוברש',note:'',
+    sides:[{els:[{type:'fixed',w:55.5},{type:'door',w:70}]}]}},
+  a4033:{ label:'אביבית 4033 – טנסי, פתח לא ישר (170/169.5)', o:{no:'4033',date:'2026-08-26',customer:'אביבית',room:'',store:'',model:'טנסי',glass:'גלינה',thick:'8',height:190,finish:'צירים זהב מוברש',note:'',
+    sides:[{els:[{type:'fixed',w:100},{type:'door',w:70,dev:-0.5}]}]}},
+  a4034:{ label:'אביבית 4034 – טנסי, גובה 200', o:{no:'4034',date:'2026-08-26',customer:'אביבית',room:'חדר הורים',store:'',model:'טנסי',glass:'גלינה',thick:'8',height:200,finish:'צירים זהב מוברש',note:'',
+    sides:[{els:[{type:'fixed',w:85.3},{type:'door',w:70}]}]}},
+  a4035:{ label:'אביבית 4035 – אוסטין פינתי עם מדרגה', o:{no:'4035',date:'2026-08-26',customer:'אביבית',room:'חדר לירוי',store:'',model:'אוסטין',glass:'גלינה',thick:'8',height:190,finish:'צירים זהב מוברש',note:'',
+    sides:[{els:[{type:'fixed',w:33.5},{type:'door',w:70}]},{els:[{type:'door',w:47.8},{type:'fixed',w:28.9,stepW:5.4,stepH:119.8,stepMeasured:'bottom'}]}]}},
+  harm:{ label:'דוגמה – הרמוניקה בין שני קירות', o:{no:'',date:new Date().toISOString().slice(0,10),customer:'',room:'',store:'',model:'',glass:'שקופה',thick:'8',height:190,finish:'',note:'',
+    sides:[{els:[{type:'harm',w:100}]}]}}
+};
+function loadExample(key){
+  const ex = JSON.parse(JSON.stringify(EXAMPLES[key].o));
+  ex.sides.forEach(s=>s.els=s.els.map(e=>Object.assign(newEl(e.type,e.w),e)));
+  ex.hwText=null; O=ex; renderForm(); recalc();
+}
+
+/* ---------------- rule engine ---------------- */
+const r1 = x=>Math.round(x*10)/10;
+const fmt = x=>{ const v=r1(x); return (Number.isInteger(v)?v.toString():v.toFixed(1)); };
+
+function neighbor(sideIdx, elIdx, dir){ // dir -1 left, +1 right (as seen from outside)
+  const sides=O.sides, side=sides[sideIdx];
+  const j=elIdx+dir;
+  if(j>=0 && j<side.els.length) return {kind:'el', el:side.els[j], corner:false, sideIdx, elIdx:j};
+  const si=sideIdx+dir;
+  if(si>=0 && si<sides.length && sides[si].els.length){
+    const s2=sides[si]; const k = dir<0 ? s2.els.length-1 : 0;
+    return {kind:'el', el:s2.els[k], corner:true, sideIdx:si, elIdx:k};
+  }
+  if(dir>0 && isBathOrder(O)) return {kind:'open'}; /* bathtub screen: the far end is open – no wall there */
+  return {kind:'wall'};
+}
+function isBathOrder(o){ if(o.openEnd===true) return true; if(o.openEnd===false) return false; const m=normModel(o.model); return !!Object.keys(MODEL_KIND).find(k=>normModel(k)===m); }
+const isDoor = n => n.kind==='el' && (n.el.type==='door'||n.el.type==='harm');
+
+/* layout resolver – shared with the installer page: which side each door hinges on, what it closes on, where a fixed meets the wall and where a step cut sits.
+   No deductions here. compute() uses exactly this, so the installer's sketch and the office drawings always agree. */
+function resolveDoors(info,warns){
+  warns=warns||[];
+  O.sides.forEach((side,si)=>side.els.forEach((el,ei)=>{
+    if(el.type==='fixed') return;
+    const L=neighbor(si,ei,-1), R=neighbor(si,ei,+1);
+    let hinge=el.hinge||'auto';
+    if(hinge==='auto'){
+      if(isDoor(L)&&!isDoor(R)) hinge='right';
+      else if(isDoor(R)&&!isDoor(L)) hinge='left';
+      else if(isDoor(L)&&isDoor(R)){ hinge='left'; warns.push(`דלת ${fmt(el.w)}: דלתות משני הצדדים – אין על מה לתלות ציר.`); }
+      else if(R.kind==='open') hinge='left';
+      else if(L.kind==='wall'&&R.kind!=='wall') hinge='left';
+      else if(R.kind==='wall'&&L.kind!=='wall') hinge='right';
+      else hinge='left';
+    }
+    const hn = hinge==='left'?L:R, cn = hinge==='left'?R:L;
+    let hingeType, hingeName;
+    if(hn.kind==='wall'){ hingeType='wall'; hingeName=S.hwHingeWall; }
+    else if(hn.corner){ hingeType='corner'; hingeName=S.hwHingeCorner; }
+    else { hingeType='glass'; hingeName=S.hwHingeGlass; }
+    if(isDoor(hn)) warns.push(`דלת ${fmt(el.w)}: הציר נתלה על דלת אחרת – בדוק את התצורה.`);
+    const closesOnDoor = isDoor(cn); const openEnd = cn.kind==='open';
+    const cornerMagnet = closesOnDoor || (cn.kind==='el' && cn.corner);
+    const magnet = openEnd ? 0 : (cornerMagnet ? S.magnetCorner : S.magnetStraight);
+    const magnetName = openEnd ? null : (cornerMagnet ? S.hwMagnetCorner : S.hwMagnetStraight);
+    info.set(el.id,{hinge,hingeType,hingeName,closesOnDoor,cornerMagnet,magnet,magnetName,cn,hn,openEnd});
+  }));
+  return info;
+}
+function fixedSides(si,ei){ const el=O.sides[si].els[ei]; const L=neighbor(si,ei,-1), R=neighbor(si,ei,+1); const wallSide = L.kind==='wall' ? 'left' : (R.kind==='wall' ? 'right' : null); const stepSide = (!el.stepSide||el.stepSide==='auto') ? (wallSide||'right') : el.stepSide; return {wallSide,hasWall:!!wallSide,stepSide,L,R}; }
+function compute(){
+  const warns=[]; const glasses=[]; const hw={}; const info=new Map();
+  const H = Number(O.height)||S.defaultHeight;
+  if(H>S.maxHeight) warns.push(`גובה ${H} ס"מ גבוה מהמקסימום המוגדר (${S.maxHeight}).`);
+  const addHw=(name,n)=>{ hw[name]=(hw[name]||0)+n; };
+  // pass 1: resolve doors (shared resolver)
+  resolveDoors(info,warns);
+  // pass 2: build glasses in view order
+  O.sides.forEach((side,si)=>side.els.forEach((el,ei)=>{
+    const w=Number(el.w)||0; const devv = el.dev!=null && el.dev!=='' ? Number(el.dev) : (el.wTop!=null && el.wTop!=='' ? Number(el.wTop)-w : 0); const wTop = devv ? w+devv : null;
+    const Ln=neighbor(si,ei,-1), Rn=neighbor(si,ei,+1);
+    const devSide = el.devSide && el.devSide!=='auto' ? el.devSide : (Ln.kind==='wall' ? 'left' : Rn.kind==='wall' ? 'right' : (el.type!=='fixed' && info.get(el.id) ? (info.get(el.id).hinge==='left'?'right':'left') : 'right'));
+    const elH = H;
+    if(el.type==='fixed'){
+      const L=neighbor(si,ei,-1), R=neighbor(si,ei,+1);
+      let ded=0; const notes=[];
+      const notchSides=[];
+      [L,R].forEach((n,k)=>{ if(isDoor(n)){ const inf=info.get(n.el.id); const closesOnMe = inf && inf.cn.kind==='el' && inf.cn.el===el; const hingesOnMe = inf && inf.hn.kind==='el' && inf.hn.el===el;
+        if(closesOnMe){ if(inf.cornerMagnet){ if(S.fixedCornerMagnetDeduct){ ded+=S.fixedCornerMagnetDeduct; notes.push(`מגנט פינתי −${fmt(S.fixedCornerMagnetDeduct)}`);} } else { ded+=S.fixedMagnetDeduct; notes.push(`מגנט ישר −${fmt(S.fixedMagnetDeduct)}`);} }
+        if(hingesOnMe) notchSides.push(k===0?'left':'right'); // ציר זכוכית-זכוכית / ציר פינה: פינוי גם בקבוע
+      } });
+      const wallSide = fixedSides(si,ei).wallSide;
+      const g={ id:el.id, kind:'fixed', label:'קבוע', devSide, wB:w-ded, wT:(wTop!=null?wTop:w)-ded, h:elH, notches:notchSides, holes:[], hasWall:!!wallSide, wallSide, formula:`${fmt(w)} ${notes.length?'− '+notes.join(', '):'(ללא הורדה)'}` };
+      if(el.stepW && el.stepH){
+        const sw=Number(el.stepW)+S.stepExtraW, sh=Number(el.stepH)+S.stepExtraH;
+        let sside = fixedSides(si,ei).stepSide;
+        if(el.stepMeasured==='bottom'){ g.wT = g.wT + Number(el.stepW); } // 'bottom': the measured width excludes the step; default 'full': measured width is the full (top) width
+        g.step={w:sw,h:sh,side:sside}; g.formula+=` | רוחב עליון ${el.stepMeasured==='bottom'?fmt(w)+'+'+fmt(el.stepW)+'='+fmt(g.wT):fmt(g.wT)}, מדרגה ${fmt(el.stepW)}+${fmt(S.stepExtraW)}=${fmt(sw)} × ${fmt(el.stepH)}+${fmt(S.stepExtraH)}=${fmt(sh)}`;
+        g.wB = g.wT - sw;
+      }
+      if(el.towel){ g.holes.push({kind:'towel',L:el.towelL,R:el.towelR,Y:el.towelY}); addHw('ידית מגבת',1); }
+      if(wallSide){ g.holes.push({side:wallSide,kind:'wall'}); addHw(S.hwAngle,2); addHw(S.hwBar,1); }
+      else warns.push(`קבוע ${fmt(w)} לא צמוד לקיר – לא סומנו קדחי חיבור לקיר.`);
+      glasses.push(g);
+    } else if(el.type==='door'){
+      const inf=info.get(el.id); const ded=S.balloon+inf.magnet;
+      const g={ id:el.id, kind:'door', label:'דלת', devSide, wB:w-ded, wT:(wTop!=null?wTop:w)-ded, h:elH-S.doorHeightDeduct, notches:[inf.hinge], extraHinge:!!el.extraHinge, holes:(el.towel?[{kind:'towel',L:el.towelL,R:el.towelR,Y:el.towelY}]:[{side:inf.hinge==='left'?'right':'left',kind:'handle'}]), hingeName:inf.hingeName,
+        formula:`${fmt(w)} − ${fmt(S.balloon)} (${S.hwBalloon})${inf.magnet?` − ${fmt(inf.magnet)} (${inf.magnetName})`:' (קצה פתוח – ללא מגנט)'} = ${fmt(w-ded)}; גובה ${fmt(elH)} − ${fmt(S.doorHeightDeduct)} = ${fmt(elH-S.doorHeightDeduct)}` };
+      if(wTop!=null) g.formula+=` | רוחב עליון ${fmt(wTop)} − ${fmt(ded)} = ${fmt(g.wT)}`;
+      glasses.push(g);
+      addHw(inf.hingeName,el.extraHinge?3:2); if(el.towel) addHw('ידית מגבת',1); else addHw(S.hwHandle,1); addHw(S.hwBalloon,1); addHw(S.hwBottom,1); addHw(S.hwSill,1);
+      if(inf.magnetName && !(inf.closesOnDoor && inf.cn.el.id<el.id)) addHw(inf.magnetName,1);
+    } else if(el.type==='harm'){
+      const inf=info.get(el.id); const ded=S.balloon+S.harmChair+S.harmMagnet; const net=w-ded;
+      const inner=net/2+S.harmInnerExtra/2, outer=net/2-S.harmInnerExtra/2;
+      const hs=inf.hinge, os=hs==='left'?'right':'left';
+      const base=`${fmt(w)} − ${fmt(S.balloon)} − ${fmt(S.harmChair)} − ${fmt(S.harmMagnet)} = ${fmt(net)}, חלוקה ל-2 ±${fmt(S.harmInnerExtra/2)}`;
+      const gi={ id:el.id+'a', kind:'harm', label:'הרמוניקה – כנף פנימית', devSide, wB:inner, wT:inner, h:elH-S.doorHeightDeduct, notches:[hs], extraHinge:!!el.extraHinge, holes:[{side:os,kind:'harm'}], hingeName:inf.hingeName, formula:base+` → ${fmt(inner)}` };
+      const go={ id:el.id+'b', kind:'harm', label:'הרמוניקה – כנף חיצונית', wB:outer, wT:outer, h:elH-S.doorHeightDeduct, notches:[], holes:[{side:hs,kind:'harm'}].concat(el.towel?[{kind:'towel',L:el.towelL,R:el.towelR,Y:el.towelY}]:[{side:os,kind:'handle'}]), formula:base+` → ${fmt(outer)}` };
+      if(hs==='left'){ glasses.push(gi,go);} else { glasses.push(go,gi); }
+      addHw(inf.hingeName,el.extraHinge?3:2); addHw(S.hwHarmHinge,2); if(el.towel) addHw('ידית מגבת',1); else addHw(S.hwHandle,1); addHw(S.hwBalloon,1); addHw(S.hwChair,1); addHw(S.hwBottom,2); addHw(S.hwSill,1);
+      if(inf.magnetName && !(inf.closesOnDoor && inf.cn.el.id<el.id)) addHw(inf.magnetName,1);
+    }
+  }));
+  glasses.forEach(g=>{ if(g.wB<=0||g.wT<=0) warns.push(`${g.label}: רוחב לא תקין (${fmt(g.wB)}).`); });
+  return {glasses,hw,warns,info,H};
+}
+
+/* ---------------- SVG helpers ---------------- */
+const esc = s=>String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+const FONT='Arial, Helvetica, sans-serif';
+function txt(x,y,s,o={}){ return `<text x="${x}" y="${y}" font-family="${FONT}" font-size="${o.size||16}" font-weight="${o.bold?'bold':'normal'}" text-anchor="${o.anchor||'middle'}" direction="${o.dir||'rtl'}" fill="#111">${esc(s)}</text>`; }
+function boxLabel(x,y,s,o={}){ const w=(o.w||(String(s).length*8+16)), h=o.h||26; return `<rect x="${x-w/2}" y="${y-h/2}" width="${w}" height="${h}" fill="#fff" stroke="#111" stroke-width="1"/>`+txt(x,y+5,s,{size:o.size||14,bold:true}); }
+function dimH(x1,x2,y,label){ return `<line x1="${x1}" y1="${y}" x2="${x2}" y2="${y}" stroke="#111" stroke-width="1.8" marker-start="url(#ah)" marker-end="url(#ah)"/>`+boxLabel((x1+x2)/2,y,label+' ס"מ'); }
+function dimV(x,y1,y2,label){ return `<line x1="${x}" y1="${y1}" x2="${x}" y2="${y2}" stroke="#111" stroke-width="1.8" marker-start="url(#ah)" marker-end="url(#ah)"/>`+boxLabel(x,(y1+y2)/2,label+' ס"מ',{w:70,h:40}); }
+const DEFS=`<defs><marker id="ah" markerWidth="14" markerHeight="14" refX="7" refY="7" orient="auto-start-reverse" markerUnits="userSpaceOnUse"><path d="M0,1.5 L13,7 L0,12.5 z" fill="#111"/></marker><pattern id="etch" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="8" stroke="#888" stroke-width="1.5"/></pattern></defs>`;
+
+/* ---------------- factory drawing ---------------- */
+function wrapLines(str,maxChars){ const out=[]; str.split('\n').forEach(par=>{ let line=''; par.split(' ').forEach(w=>{ if((line+' '+w).trim().length>maxChars && line){ out.push(line); line=w; } else line=(line+' '+w).trim(); }); if(line) out.push(line); }); return out; }
+function noteBox(cx,cy,lines,o={}){ const size=o.size||13, lh=size+5, w=o.w||Math.max(...lines.map(l=>l.length))*size*0.62+20, h=lines.length*lh+12; let r=`<rect x="${cx-w/2}" y="${cy-h/2}" width="${w}" height="${h}" fill="#fff" stroke="#111" stroke-width="1" rx="2"/>`; lines.forEach((l,i)=>r+=txt(cx,cy-h/2+10+lh*(i+1)-4,l,{size,bold:o.bold})); return r; }
+function factorySVG(C){
+  const W=1000, PH=1414; let s='';
+  s+=`<rect width="${W}" height="${PH}" fill="#fff"/>`;
+  s+=txt(500,62,S.factoryName,{size:32,bold:true});
+  s+=txt(500,100,S.factoryLine2,{size:28});
+  const head=`הזמנה: ${O.no||'—'} ${O.customer||''} ${O.room||''} ${O.note||''}`.trim();
+  s+=txt(950,150,head,{size:20,bold:true,anchor:'start'});
+  s+=txt(120,150,O.date? O.date.split('-').reverse().join('-'):'',{size:16,anchor:'end',dir:'ltr'});
+  s+=txt(950,182,`זכוכית – ${O.glass||''}${O.finish?' | '+O.finish:''}`,{size:19,anchor:'start'});
+  s+=txt(950,212,S.factoryNote1.replace('{thick}',O.thick),{size:21,bold:true,anchor:'start'});
+  s+=txt(950,240,S.factoryNote2,{size:19,anchor:'start'});
+  s+=txt(950,1380,'הסתכלות על הזכוכיות מבחוץ. הפינויים מצוירים סכמטית (המידות המדויקות של הפינוי – לפי הפרזול).',{size:12,anchor:'start'});
+  const gs=C.glasses; if(!gs.length) return svgWrap(W,PH,s);
+  // layout: heights to scale; widths get a minimum drawn width so notes fit inside
+  const distinctH=[...new Set(gs.map(g=>fmt(g.h)))];
+  const hsideOf=g=>(g.notches&&g.notches.length)? g.notches[0] : ((g.holes.find(h=>h.kind==='wall')||{}).side || 'left');
+  const hsides=gs.map(hsideOf);
+  const gaps=gs.slice(0,-1).map((g,i)=> (hsides[i]==='right'&&hsides[i+1]==='left') ? 128 : (hsides[i]==='right'||hsides[i+1]==='left') ? 80 : 40);
+  const gapSum=gaps.reduce((a,b)=>a+b,0);
+  const leftMargin= hsides[0]==='left' ? 80 : 30, rightMargin = hsides[hsides.length-1]==='right' ? 80 : 30, top=345, areaH=800;
+  const maxH=Math.max(...gs.map(g=>g.h));
+  const availW=W-leftMargin-rightMargin-gapSum;
+  const minW=Math.min(210, Math.floor(availW/gs.length));
+  const scH=areaH/maxH;
+  let sc=scH; // try true proportion
+  const widthsAt=(k)=>gs.map(g=>Math.max(Math.max(g.wB,g.wT)*k,minW));
+  let total=widthsAt(sc).reduce((a,b)=>a+b,0);
+  if(total>availW){ // shrink width scale only until it fits (heights stay)
+    let lo=0.05, hi=sc; for(let i=0;i<40;i++){ const mid=(lo+hi)/2; if(widthsAt(mid).reduce((a,b)=>a+b,0)>availW) hi=mid; else lo=mid; } sc=lo;
+  }
+  const pws=widthsAt(sc);
+  const totalPx=pws.reduce((a,b)=>a+b,0)+gapSum;
+  const rowLeft = leftMargin + (availW-(totalPx-gapSum))/2;
+  const rowTop = top, rowBottom = top+maxH*scH;
+  let x=rowLeft;
+  gs.forEach((g,i)=>{
+    const pw=pws[i], ph=g.h*scH, y0=rowBottom-ph, y1=rowBottom, x0=x, x1=x+pw;
+    const wMax=Math.max(g.wB,g.wT);
+    // trapezoid / deviation: exaggerate so it is visible
+    let xTL=x0,xTR=x1,xBL=x0,xBR=x1;
+    const dev=g.step?0:(g.wT-g.wB); // + = top wider (a step is handled separately)
+    if(Math.abs(dev)>0.005){
+      const off=Math.max(Math.abs(dev)*sc,16);
+      const side=g.devSide||'right';
+      if(dev>0){ if(side==='right') xBR=x1-off; else xBL=x0+off; }
+      else { if(side==='right') xTR=x1-off; else xTL=x0+off; }
+    }
+    let pts;
+    if(g.step){
+      const sh=Math.min(g.step.h*scH, ph-10), ys=y1-sh, sw=Math.max(g.step.w*sc,26);
+      if(g.step.side==='right'){ xBR=x1-sw; pts=`${xTL},${y0} ${xTR},${y0} ${xTR},${ys} ${xBR},${ys} ${xBR},${y1} ${xBL},${y1}`; }
+      else { xBL=x0+sw; pts=`${xTL},${y0} ${xTR},${y0} ${xBR},${y1} ${xBL},${y1} ${xBL},${ys} ${xTL},${ys}`; }
+      g._step={ys,sw,sh};
+    } else pts=`${xTL},${y0} ${xTR},${y0} ${xBR},${y1} ${xBL},${y1}`;
+    s+=`<polygon points="${pts}" fill="none" stroke="#111" stroke-width="5" stroke-linejoin="round"/>`;
+    const notes=[]; // [lines...] blocks placed inside
+    const cx=x0+pw/2;
+    // notches (hinge cut-outs) – may be on both sides (fixed with glass-glass hinges)
+    const stepTop = g._step ? g._step.ys : null;
+    const lowY = (side)=> (g.step && g.step.side===side && stepTop!=null) ? Math.min(y1-ph*0.12, stepTop-34) : y1-ph*0.12;
+    (g.notches||[]).forEach(side=>{
+      const notchYs=[y0+ph*0.12, lowY(side)]; if(g.extraHinge) notchYs.splice(1,0,y0+ph*0.34);
+      const nx = side==='left'? xTL : xTR; const dir = side==='left'?1:-1;
+      const nw=30, nh=26;
+      notchYs.forEach(cy=>{
+        s+=`<rect x="${dir>0?nx-3:nx-nw+3}" y="${cy-nh/2}" width="${nw}" height="${nh}" fill="#fff" stroke="none"/>`;
+        s+=`<path d="M${nx},${cy-nh/2} L${nx+dir*nw},${cy-nh/2} L${nx+dir*nw},${cy+nh/2} L${nx},${cy+nh/2}" fill="none" stroke="#111" stroke-width="5" stroke-linejoin="round"/>`;
+      });
+    });
+    if(g.extraHinge) notes.push(['ציר נוסף – 3 פינויים']);
+    const arrow=(x1,y1,x2,y2)=>`<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="#111" stroke-width="2" marker-start="url(#ah)" marker-end="url(#ah)"/>`;
+    // holes
+    let harmLabeled=false;
+    g.holes.forEach(h=>{
+      if(h.kind==='handle'){
+        const hx = h.side==='left'? xBL+S.handleFromEdge*sc : xBR-S.handleFromEdge*sc; const hy=y0+ph/2;
+        const ex = h.side==='left'? xBL : xBR;
+        s+=`<circle cx="${hx}" cy="${hy}" r="8" fill="#fff" stroke="#111" stroke-width="3.5"/>`;
+        s+=arrow(ex,hy-26,hx,hy-26); s+=noteBox(hx+(h.side==='left'?34:-34),hy-26,[`${fmt(S.handleFromEdge)}`],{size:12,bold:true,w:34});
+        notes.push([`קדח ${S.handleHoleMm} מ"מ`,`במרחק ${fmt(S.handleFromEdge)} ס"מ`,'במרכז הזכוכית']);
+      } else if(h.kind==='towel'){
+        const dL = h.L!=null&&h.L!==''? Number(h.L) : S.towelEdge, dR = h.R!=null&&h.R!==''? Number(h.R) : S.towelEdge;
+        const hasY = h.Y!=null&&h.Y!==''; const ty = hasY ? y1-Number(h.Y)*scH : y0+ph*(g.holes.some(o=>o.kind==='handle')?0.62:0.5);
+        const lx = Math.max(xBL,xTL)+dL*sc, rx = Math.min(xBR,xTR)-dR*sc;
+        s+=`<line x1="${lx}" y1="${ty}" x2="${rx}" y2="${ty}" stroke="#111" stroke-width="2" stroke-dasharray="6 5"/>`;
+        s+=`<circle cx="${lx}" cy="${ty}" r="8" fill="#fff" stroke="#111" stroke-width="3.5"/><circle cx="${rx}" cy="${ty}" r="8" fill="#fff" stroke="#111" stroke-width="3.5"/>`;
+        s+=arrow(Math.max(xBL,xTL),ty-24,lx,ty-24); s+=noteBox((Math.max(xBL,xTL)+lx)/2,ty-44,[fmt(dL)],{size:12,bold:true,w:36});
+        s+=arrow(rx,ty-24,Math.min(xBR,xTR),ty-24); s+=noteBox((rx+Math.min(xBR,xTR))/2,ty-44,[fmt(dR)],{size:12,bold:true,w:36});
+        if(hasY){ const ax=(lx+rx)/2; s+=arrow(ax,ty,ax,y1); s+=noteBox(ax,(ty+y1)/2,[fmt(Number(h.Y))],{size:12,bold:true,w:44}); }
+        notes.push(['ידית מגבת לרוחב',`2 קדחים ${S.towelHoleMm} מ"מ`, hasY?`בגובה ${fmt(Number(h.Y))} ס"מ`:'במרכז הגובה']);
+      } else if(h.kind==='wall'){
+        const hx = h.side==='left'? x0+22 : x1-22;
+        const onStep = g.step && g.step.side===h.side && stepTop!=null && (y1-ph*0.12) < stepTop-20;   // the step is tall: the lower clip sits on the step's cut edge, at the usual height
+        const lowX = onStep ? (h.side==='left'? x0+g._step.sw+22 : x1-g._step.sw-22) : hx; const lowYv = onStep ? y1-ph*0.12 : lowY(h.side);
+        s+=`<circle cx="${hx}" cy="${y0+ph*0.12}" r="8" fill="#fff" stroke="#111" stroke-width="3.5"/><circle cx="${lowX}" cy="${lowYv}" r="8" fill="#fff" stroke="#111" stroke-width="3.5"/>`;
+        notes.push(['קדח לחיבור','זוויות קיר']);
+      } else if(h.kind==='harm'){
+        const ex = h.side==='left'? x0 : x1;
+        const hx = h.side==='left'? x0+Math.max(S.harmHoleFromEdge*sc,18) : x1-Math.max(S.harmHoleFromEdge*sc,18); const gp=Math.max(S.harmHoleGap*sc,30);
+        [y0+ph*0.12,y1-ph*0.12].forEach((cy,k)=>{
+          s+=`<circle cx="${hx}" cy="${cy-gp/2}" r="8" fill="#fff" stroke="#111" stroke-width="3.5"/><circle cx="${hx}" cy="${cy+gp/2}" r="8" fill="#fff" stroke="#111" stroke-width="3.5"/>`;
+          if(k===0){
+            const ax = h.side==='left'? hx+24 : hx-24; s+=arrow(ax,cy-gp/2,ax,cy+gp/2); s+=noteBox(ax+(h.side==='left'?32:-32),cy,[`${fmt(S.harmHoleGap)} ס"מ`],{size:12,bold:true,w:48});
+            s+=arrow(ex,cy+gp/2+22,hx,cy+gp/2+22); s+=noteBox(hx+(h.side==='left'?40:-40),cy+gp/2+40,[`${fmt(S.harmHoleFromEdge)} ס"מ`],{size:12,bold:true,w:52});
+          }
+        });
+        if(!harmLabeled){ harmLabeled=true; notes.push([`קדח ${S.harmHoleMm} מ"מ`]); }
+      }
+    });
+    // etching band (special requests only)
+    const ef=Number(O.etchFrom), et=Number(O.etchTo);
+    if(O.etchFrom!==''&&O.etchTo!==''&&et>ef&&ef>=0){
+      const ey1=y1-Math.min(ef,g.h)*scH, ey0=y1-Math.min(et,g.h)*scH;
+      s+=`<rect x="${Math.max(xTL,xBL)+6}" y="${ey0}" width="${Math.min(xTR,xBR)-Math.max(xTL,xBL)-12}" height="${ey1-ey0}" fill="url(#etch)" stroke="#888" stroke-width="1" stroke-dasharray="6 4"/>`;
+      if(i===gs.length-1){ const ex2=x1+30; s+=`<line x1="${ex2}" y1="${ey0}" x2="${ex2}" y2="${y1}" stroke="#111" stroke-width="1.8" marker-start="url(#ah)" marker-end="url(#ah)"/>`; s+=noteBox(ex2,(ey0+y1)/2,['צריבה',`עד ${fmt(et)}`],{size:11,w:50}); if(ef>0){ s+=`<line x1="${ex2+34}" y1="${ey1}" x2="${ex2+34}" y2="${y1}" stroke="#111" stroke-width="1.8" marker-start="url(#ah)" marker-end="url(#ah)"/>`; s+=noteBox(ex2+34,(ey1+y1)/2,[`מ-${fmt(ef)}`],{size:11,w:44}); } }
+    }
+    // place notes: block A at ~0.30, block B at ~0.72, others stacked
+    const hasTowel=g.holes.some(o=>o.kind==='towel'&&(o.Y==null||o.Y===''));
+    const slots=g.step?[0.24,0.64,0.80]:hasTowel?[0.30,0.80,0.92]:[0.30,0.68,0.84];
+    const innerW=pw-24, maxChars=Math.max(10,Math.floor(innerW/8));
+    notes.forEach((lines,k)=>{ const ls=lines.flatMap(l=>wrapLines(l,maxChars)); const cy=y0+ph*(slots[k]??0.5); s+=noteBox(cx,cy,ls,{size:12,w:innerW}); });
+    // dimensions
+    const dy=y1+30;
+    if(g.step){
+      s+=dimH(xTL,xTR,y0-26,fmt(g.wT));
+      s+=dimH(xBL,xBR,dy,fmt(g.wB));
+      const {ys,sw,sh}=g._step; const right=g.step.side==='right';
+      // width of the cut: line inside the glass just above the cut's top edge
+      const wx1 = right ? xBR : xBL, wx2 = right ? x1 : x0; const wy=ys-16;
+      s+=`<line x1="${wx1}" y1="${wy}" x2="${wx2}" y2="${wy}" stroke="#111" stroke-width="1.2" marker-start="url(#ah)" marker-end="url(#ah)"/>`;
+      s+=noteBox(right? wx1-30 : wx1+30, wy, [fmt(g.step.w)],{size:12,bold:true,w:46});
+      // height of the cut: line inside the glass just beside the cut's vertical edge
+      const hx = right ? xBR-16 : xBL+16;
+      s+=`<line x1="${hx}" y1="${ys}" x2="${hx}" y2="${y1}" stroke="#111" stroke-width="1.2" marker-start="url(#ah)" marker-end="url(#ah)"/>`;
+      s+=noteBox(right? hx-30 : hx+30, (ys+y1)/2, [fmt(g.step.h)],{size:12,bold:true,w:50});
+      // small corner label, opposite bottom corner
+      s+=noteBox(right? x0+46 : x1-46, y1-22, ['חיתוך מדרגה'],{size:11,w:84});
+    } else {
+      s+=dimH(xBL,xBR,dy,fmt(g.wB));
+      if(Math.abs(dev)>0.005) s+=dimH(xTL,xTR,y0-26,fmt(g.wT));
+    }
+    // glass title
+    s+=txt(cx,y0-62,`${g.label} ${i+1}`,{size:14,bold:true});
+    // height along the glass's own left side
+    const hside = hsides[i];
+    const hxx = hside==='right' ? x1+34 : x0-34;
+    s+=`<line x1="${hxx}" y1="${y0}" x2="${hxx}" y2="${y1}" stroke="#111" stroke-width="1.8" marker-start="url(#ah)" marker-end="url(#ah)"/>`;
+    s+=noteBox(hxx,(y0+y1)/2,[fmt(g.h)],{w:54,size:13,bold:true});
+    x+=pw+(gaps[i]||0);
+  });
+  return svgWrap(W,PH,s);
+}
+function svgWrap(W,H,inner){ return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}">${DEFS}${inner}</svg>`; }
+
+/* ---------------- general (installer) drawing ---------------- */
+function projectionSVG(C,fs){
+  fs=fs||1; let s=''; const N=O.sides.length;
+  // projection
+  const dirs = N===1? [[1,0]] : N===2? [[0.8,0.5],[0.8,-0.5]] : N===3? [[0.72,0.5],[1,0],[0.72,-0.5]] : O.sides.map((_,i)=>[Math.cos((i-(N-1)/2)*0.6),Math.sin((i-(N-1)/2)*0.6)*0.6]);
+  const H=C.H; const polys=[]; let px=0,py=0; const pts=[];
+  const elsGeom=[];
+  O.sides.forEach((side,si)=>{
+    const d=dirs[si]; const sideStart=[px,py]; let sx=px,sy=py;
+    side.els.forEach((el,ei)=>{
+      const w=Number(el.w)||0;
+      const ax=sx, ay=sy, bx=sx+d[0]*w, by=sy+d[1]*w;
+      elsGeom.push({el,si,ei,a:[ax,ay],b:[bx,by],w,d});
+      pts.push([ax,ay],[bx,by],[ax,ay-H],[bx,by-H]);
+      sx=bx; sy=by;
+    });
+    elsGeom.push({sideTotal:true,si,a:sideStart,b:[sx,sy],w:side.els.reduce((a,e)=>a+(Number(e.w)||0),0),d,n:side.els.length,stepW:side.els.reduce((a,e)=>a+((e.type==='fixed'&&e.stepW&&e.stepH)?Number(e.stepW):0),0)});
+    px=sx; py=sy;
+  });
+  if(!pts.length) return '';
+  const minX=Math.min(...pts.map(p=>p[0])), maxX=Math.max(...pts.map(p=>p[0])), minY=Math.min(...pts.map(p=>p[1])), maxY=Math.max(...pts.map(p=>p[1]));
+  const areaW=700, areaH=(N===1?520:580), ox=150, oy=(N===1?300:215);
+  const sc=Math.min(areaW/(maxX-minX||1), areaH/(maxY-minY||1));
+  const X=x=>ox+(x-minX)*sc+(areaW-(maxX-minX)*sc)/2, Y=y=>oy+(y-minY)*sc+(areaH-(maxY-minY)*sc)/2;
+  const heightDrawn={}; const pnotes=[]; const topDims = N===1;
+  elsGeom.forEach(g=>{
+    if(g.sideTotal){
+      const [ax,ay]=g.a,[bx,by]=g.b; let nx=-g.d[1], ny=g.d[0]; const nl=Math.hypot(nx,ny)||1; nx/=nl; ny/=nl; if(ny<0){ nx=-nx; ny=-ny; }   // unit normal pointing down/outwards
+      const n=g.n||1, hh=H*sc;
+      if(n>1 && !(g.stepW>0&&!topDims)){ const off=topDims?56:-104; const x1=X(ax)-nx*off, y1=(topDims?Y(ay)-hh:Y(ay))-ny*off, x2=X(bx)-nx*off, y2=(topDims?Y(by)-hh:Y(by))-ny*off;
+        s+=`<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="#111" stroke-width="1.2" marker-start="url(#ah)" marker-end="url(#ah)"/>`; s+=boxLabel((x1+x2)/2,(y1+y2)/2,fmt(g.w)+' ס"מ',{w:84*fs,h:26*fs,size:14*fs}); }
+      if(g.stepW>0 && n>1){ const off=104; const x1=X(ax)+nx*off, y1=Y(ay)+ny*off, x2=X(bx)+nx*off, y2=Y(by)+ny*off;
+        s+=`<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="#111" stroke-width="1.2" marker-start="url(#ah)" marker-end="url(#ah)"/>`; s+=boxLabel((x1+x2)/2,(y1+y2)/2,'למטה '+fmt(g.w-g.stepW)+' ס"מ',{w:110*fs,h:26*fs,size:13*fs}); }
+      return;
+    }
+    const {el,a,b,w}=g; const ax=X(a[0]),ay=Y(a[1]),bx=X(b[0]),by=Y(b[1]); const h=H*sc;
+    s+=`<polygon points="${ax},${ay} ${bx},${by} ${bx},${by-h} ${ax},${ay-h}" fill="${el.type==='fixed'?'#f4f4f4':'#fff'}" stroke="#111" stroke-width="${el.type==='fixed'?5:3}" stroke-linejoin="round"/>`;
+    const mx=(ax+bx)/2, my=(ay+by)/2;
+    const lerp=(t)=>[ax+(bx-ax)*t, ay+(by-ay)*t];
+    if(el.type==='fixed'){
+      const inf=C.glasses.find(q=>q.id===el.id);
+      if(inf&&inf.hasWall){ const t=inf.wallSide==='left'?0.1:0.9; const [hx,hy]=lerp(t); const stepOnWall = el.stepW&&el.stepH&&inf.step&&inf.step.side===inf.wallSide; const shp=stepOnWall?Number(el.stepH)*sc:0; const tall = stepOnWall && shp > h*0.15+10;
+        const stepFrac = stepOnWall ? Math.min(0.9,Number(el.stepW)/(Number(el.w)||1)) : 0; const [lx,ly]=lerp(tall ? (inf.wallSide==='left'? stepFrac+0.08 : 1-stepFrac-0.08) : t); const fLow = (stepOnWall&&!tall) ? Math.min(0.76, shp/h+0.06) : 0.15;
+        s+=`<circle cx="${hx}" cy="${hy-h*0.85}" r="8" fill="#fff" stroke="#111" stroke-width="3.5"/><circle cx="${lx}" cy="${ly-h*fLow}" r="8" fill="#fff" stroke="#111" stroke-width="3.5"/>`; }
+      if(el.stepW&&el.stepH){ const t=inf.step.side==='left'?0.0:1.0; const sw=Number(el.stepW)*sc, sh=Number(el.stepH)*sc; const [cx,cy]=lerp(t); const dirx=t===0?1:-1; s+=`<polygon points="${cx},${cy} ${cx+dirx*sw*g.d[0]},${cy+dirx*sw*g.d[1]} ${cx+dirx*sw*g.d[0]},${cy+dirx*sw*g.d[1]-sh} ${cx},${cy-sh}" fill="#fff" stroke="#111" stroke-width="3"/>`; // step dimensions go on a leader line outside the glass (inside there is no room)
+        const lx = t===0 ? ax-165 : bx+95; const ly=cy-sh/2; s+=`<line x1="${cx+dirx*sw*g.d[0]/2}" y1="${cy-sh/2}" x2="${lx}" y2="${ly}" stroke="#555" stroke-width="1" stroke-dasharray="4 3"/>`; s+=boxLabel(lx,ly,`מדרגה ${fmt(el.stepW)}×${fmt(el.stepH)}`,{w:110,size:12,h:22});
+        pnotes.push(`מדרגה ${N===1?'בחזית':g.si===0?'בצלע שמאל':g.si===N-1?'בצלע ימין':'בחזית'} (קבוע ${fmt(w)}): רוחב ${fmt(el.stepW)} ס"מ, גובה ${fmt(el.stepH)} ס"מ – רוחב הצלע התחתונה ${fmt(w-Number(el.stepW))} ס"מ`);
+        { let nx=-g.d[1], ny=g.d[0]; const nl=Math.hypot(nx,ny)||1; nx/=nl; ny/=nl; if(ny<0){ nx=-nx; ny=-ny; } const off=20; const sxp=cx+dirx*sw*g.d[0], syp=cy+dirx*sw*g.d[1]; const [fx,fy]=lerp(t===0?1:0);
+          const x1=sxp+nx*off, y1=syp+ny*off, x2=fx+nx*off, y2=fy+ny*off; s+=`<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="#111" stroke-width="1.2" marker-start="url(#ah)" marker-end="url(#ah)"/>`; s+=boxLabel((x1+x2)/2,(y1+y2)/2,fmt(w-Number(el.stepW)),{w:46,h:22,size:12});
+          if(sw>30){ const x3=cx+nx*off, y3=cy+ny*off; s+=`<line x1="${x3}" y1="${y3}" x2="${x1}" y2="${y1}" stroke="#111" stroke-width="1.2" marker-start="url(#ah)" marker-end="url(#ah)"/>`; s+=boxLabel((x3+x1)/2,(y3+y1)/2,fmt(el.stepW),{w:36,h:22,size:12}); } else { const x3=cx+nx*off, y3=cy+ny*off; const mx=(x3+x1)/2, my=(y3+y1)/2; const lx=mx+(t===0?-80:80), ly=my+56; s+=`<line x1="${mx}" y1="${my}" x2="${lx}" y2="${ly}" stroke="#555" stroke-width="1" stroke-dasharray="4 3"/>`; s+=boxLabel(lx+(t===0?-30:30),ly,'מדרגה '+fmt(el.stepW),{w:80,h:22,size:12}); } } }
+      { const stepped = el.type==='fixed'&&el.stepW&&el.stepH; if(!(stepped&&!topDims)){ let nx=-g.d[1], ny=g.d[0]; const nl=Math.hypot(nx,ny)||1; nx/=nl; ny/=nl; if(ny<0){ nx=-nx; ny=-ny; } const off=topDims?26:-34; const x1=ax-nx*off, y1=(topDims?ay-h:ay)-ny*off, x2=bx-nx*off, y2=(topDims?by-h:by)-ny*off; s+=`<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="#111" stroke-width="1.2" marker-start="url(#ah)" marker-end="url(#ah)"/>`; s+=boxLabel((x1+x2)/2,(y1+y2)/2,fmt(w)+' ס"מ',{w:Math.min(80,Math.max(44,Math.hypot(bx-ax,by-ay)-10))*fs,h:26*fs,size:14*fs}); } }
+    } else {
+      const inf=C.info.get(el.id); const hingeT = inf.hinge==='left'?0:1; const closeT = inf.hinge==='left'?0.9:0.1;
+      (el.extraHinge?[0.15,0.66,0.85]:[0.15,0.85]).forEach(f=>{ const [hx,hy]=lerp(hingeT); s+=`<rect x="${hx-13}" y="${hy-h*f-15}" width="26" height="30" rx="3" fill="#fff" stroke="#111" stroke-width="3"/><line x1="${hx}" y1="${hy-h*f-15}" x2="${hx}" y2="${hy-h*f+15}" stroke="#111" stroke-width="1.5"/>`; });
+      if(el.towel){ const [t1x,t1y]=lerp(0.2), [t2x,t2y]=lerp(0.8); s+=`<line x1="${t1x}" y1="${t1y-h*0.5}" x2="${t2x}" y2="${t2y-h*0.5}" stroke="#111" stroke-width="4" stroke-linecap="round"/>`; [[t1x,t1y],[t2x,t2y]].forEach(([x,y])=>s+=`<circle cx="${x}" cy="${y-h*0.5}" r="4" fill="#fff" stroke="#111" stroke-width="2.5"/>`); }
+      else { const [cx,cy]=lerp(closeT); s+=`<circle cx="${cx}" cy="${cy-h*0.5}" r="6" fill="#fff" stroke="#111" stroke-width="3"/>`; }
+      if(el.type==='harm'){ const wTot=Number(el.w)||1; const innerShare=Math.min(0.9,Math.max(0.1,((wTot-S.balloon-S.harmChair-S.harmMagnet)/2+S.harmInnerExtra/2+ (S.balloon))/wTot)); const tF = inf.hinge==='left'? innerShare : 1-innerShare; const [qx,qy]=lerp(tF);
+        s+=`<line x1="${qx}" y1="${qy}" x2="${qx}" y2="${qy-h}" stroke="#111" stroke-width="1.5"/>`;
+        [0.15,0.85].forEach(f=>{ s+=`<rect x="${qx-7}" y="${qy-h*f-7}" width="14" height="14" fill="#fff" stroke="#111" stroke-width="2.5"/><line x1="${qx-7}" y1="${qy-h*f}" x2="${qx+7}" y2="${qy-h*f}" stroke="#111" stroke-width="2"/>`; }); }
+      { const stepped = el.type==='fixed'&&el.stepW&&el.stepH; if(!(stepped&&!topDims)){ let nx=-g.d[1], ny=g.d[0]; const nl=Math.hypot(nx,ny)||1; nx/=nl; ny/=nl; if(ny<0){ nx=-nx; ny=-ny; } const off=topDims?26:-34; const x1=ax-nx*off, y1=(topDims?ay-h:ay)-ny*off, x2=bx-nx*off, y2=(topDims?by-h:by)-ny*off; s+=`<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="#111" stroke-width="1.2" marker-start="url(#ah)" marker-end="url(#ah)"/>`; s+=boxLabel((x1+x2)/2,(y1+y2)/2,fmt(w)+' ס"מ',{w:Math.min(80,Math.max(44,Math.hypot(bx-ax,by-ay)-10))*fs,h:26*fs,size:14*fs}); } }
+      if(el.towel) pnotes.push(`${el.type==='harm'?'הרמוניקה':'דלת'} ${fmt(w)}: ידית מגבת לרוחב במקום ידית`); if(el.extraHinge) pnotes.push(`${el.type==='harm'?'הרמוניקה':'דלת'} ${fmt(w)}: ציר נוסף בחלק העליון (3 צירים)`);
+    }
+    { const wTop = el.wTop!=null&&el.wTop!==''? Number(el.wTop) : (el.dev? Number(el.w)+Number(el.dev) : null);
+      if(wTop!=null && Math.abs(wTop-w)>0.001){ const dev = el.devSide&&el.devSide!=='auto'? el.devSide : (g.si===0&&g.ei===0?'left': (g.ei===elsGeom.filter(q=>!q.sideTotal&&q.si===g.si).length-1&&g.si===N-1)?'right':'right'); const diff=wTop-w;
+        const [ex0,ey0] = dev==='left'? [ax,ay] : [bx,by]; const dir=dev==='left'?-1:1; const push=Math.sign(diff)*Math.min(18,Math.max(7,Math.abs(diff)*sc*4)); const ux=(bx-ax)/(Math.hypot(bx-ax,by-ay)||1), uy=(by-ay)/(Math.hypot(bx-ax,by-ay)||1);
+        s+=`<line x1="${ex0}" y1="${ey0}" x2="${ex0+dir*push*ux}" y2="${ey0-h+dir*push*uy}" stroke="#b4540a" stroke-width="2.5" stroke-dasharray="7 4"/>`;
+        s+=boxLabel(ex0+dir*52,ey0-h-6,'למעלה '+fmt(wTop),{w:84,size:12,h:22}); s+=boxLabel(ex0+dir*52,ey0+16,'למטה '+fmt(w),{w:76,size:12,h:22});
+        pnotes.push(`סטייה בקיר ${dev==='left'?'שמאל':'ימין'} (${el.type==='fixed'?'קבוע':el.type==='harm'?'הרמוניקה':'דלת'} ${fmt(w)}): למטה ${fmt(w)}, למעלה ${fmt(wTop)} – ${diff>0?'רחב':'צר'} יותר למעלה ב-${fmt(Math.abs(diff))} ס"מ`); } }
+    if(!heightDrawn[g.si] && g.ei===0){ heightDrawn[g.si]=true; if(g.si===0){ const fe=O.sides[0].els[0]; const leftExtra = (fe.wTop!=null&&fe.wTop!==''&&Number(fe.wTop)!==Number(fe.w))||fe.dev||(fe.type==='fixed'&&fe.stepW&&fe.stepH); const hxx=ax-(leftExtra?100:40); s+=`<line x1="${hxx}" y1="${ay-h}" x2="${hxx}" y2="${ay}" stroke="#111" stroke-width="1.8" marker-start="url(#ah)" marker-end="url(#ah)"/>`+boxLabel(hxx,(ay-h+ay)/2,fmt(H)+' ס"מ',{w:70*fs,h:40*fs,size:14*fs}); } }
+  });
+  pnotes.forEach((n,k)=>s+=txt(920,(N===1?905:945)+k*20,'• '+n,{size:14,anchor:'start'}));
+  return s;
+}
+
+/* flat elevation per side – used in customer documents (clear dimensions) */
+function elevationSVG(C,box,fs){
+  fs=fs||1; let s=''; const H=C.H; const sides=O.sides.filter(sd=>sd.els.length);
+  if(!sides.length) return '';
+  const sideW=sides.map(sd=>sd.els.reduce((a,e)=>a+(Number(e.w)||0),0));
+  const gapCm=Math.max(12, H*0.08);
+  const totalW=sideW.reduce((a,b)=>a+b,0)+gapCm*(sides.length-1);
+  const labelH=(sides.some(sd=>sd.els.length>1)?2:1)*34*fs+30*fs; const topH=30*fs;
+  const sc=Math.min((box.w-70*fs)/totalW, (box.h-labelH-topH)/H);
+  const x0=box.x+70*fs + (box.w-70*fs-totalW*sc)/2, yTop=box.y+topH + (box.h-labelH-topH-H*sc)/2, yBot=yTop+H*sc;
+  const lab=(x,y,t,w,bold)=>boxLabel(x,y,t,{w:w*fs,h:24*fs,size:13*fs,bold});
+  const arrow=(x1,y1,x2,y2)=>`<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="#111" stroke-width="1.4" marker-start="url(#ah)" marker-end="url(#ah)"/>`;
+  // height
+  s+=arrow(x0-40*fs,yTop,x0-40*fs,yBot); s+=lab(x0-40*fs,(yTop+yBot)/2,fmt(H)+' ס"מ',66,true);
+  let x=x0;
+  sides.forEach((sd,si)=>{
+    const name = sides.length===1 ? 'חזית' : (si===0?'צלע שמאל':si===sides.length-1?'צלע ימין':'צלע '+(si+1));
+    const wPx=sideW[si]*sc;
+    s+=txt(x+wPx/2,yTop-10*fs,name,{size:13*fs,bold:true});
+    let ex=x;
+    sd.els.forEach((el,ei)=>{
+      const w=(Number(el.w)||0)*sc; const inf=C.info.get(el.id);
+      s+=`<rect x="${ex}" y="${yTop}" width="${w}" height="${yBot-yTop}" fill="${el.type==='fixed'?'#eef3f5':'#fff'}" stroke="#111" stroke-width="${el.type==='fixed'?3:2}"/>`;
+      if(el.type!=='fixed'&&inf){
+        const hx = inf.hinge==='left'? ex+5 : ex+w-5; const cx = inf.hinge==='left'? ex+w-12*fs : ex+12*fs;
+        [0.15,0.85].forEach(f=>s+=`<rect x="${hx-6}" y="${yTop+(yBot-yTop)*f-7}" width="12" height="14" fill="#fff" stroke="#111" stroke-width="2"/>`);
+        s+=`<circle cx="${cx}" cy="${(yTop+yBot)/2}" r="4.5" fill="#fff" stroke="#111" stroke-width="2"/>`;
+        if(el.type==='harm'){ const wTot=Number(el.w)||1; const innerShare=Math.min(0.9,Math.max(0.1,((wTot-S.balloon-S.harmChair-S.harmMagnet)/2+S.harmInnerExtra/2+S.balloon)/wTot)); const fx = inf.hinge==='left'? ex+w*innerShare : ex+w*(1-innerShare); s+=`<line x1="${fx}" y1="${yTop}" x2="${fx}" y2="${yBot}" stroke="#111" stroke-width="1.2"/>`; [0.15,0.85].forEach(f=>s+=`<rect x="${fx-5}" y="${yTop+(yBot-yTop)*f-5}" width="10" height="10" fill="#fff" stroke="#111" stroke-width="2"/>`); }
+      } else if(el.type==='fixed'){
+        const g=C.glasses.find(q=>q.id===el.id); if(g&&g.hasWall){ const hx=g.wallSide==='left'? ex+10 : ex+w-10; [0.12,0.88].forEach(f=>s+=`<circle cx="${hx}" cy="${yTop+(yBot-yTop)*f}" r="3.5" fill="#fff" stroke="#111" stroke-width="2"/>`); }
+        if(el.stepW&&el.stepH&&g&&g.step){ const sw=Number(el.stepW)*sc, sh=Math.min(Number(el.stepH)*sc,yBot-yTop-10); const sx=g.step.side==='left'? ex : ex+w-sw; s+=`<rect x="${sx}" y="${yBot-sh}" width="${sw}" height="${sh}" fill="#fff" stroke="#111" stroke-width="2"/>`; }
+      }
+      const typeName={fixed:'קבוע',door:'דלת',harm:'הרמוניקה'}[el.type];
+      if(w>40*fs) s+=txt(ex+w/2,yTop+(yBot-yTop)*0.3,typeName,{size:12*fs});
+      // width dimension under the element
+      s+=arrow(ex,yBot+16*fs,ex+w,yBot+16*fs); s+=lab(ex+w/2,yBot+16*fs,fmt(el.w),Math.min(56,Math.max(34,w/fs-6)));
+      ex+=w;
+    });
+    if(sd.els.length>1){ s+=arrow(x,yBot+50*fs,x+wPx,yBot+50*fs); s+=lab(x+wPx/2,yBot+50*fs,fmt(sideW[si])+' ס"מ',76,true); }
+    if(si<sides.length-1){ const cx=x+wPx+gapCm*sc/2; s+=`<line x1="${cx}" y1="${yTop}" x2="${cx}" y2="${yBot}" stroke="#999" stroke-width="1" stroke-dasharray="5 5"/>`; s+=txt(cx,yTop-10*fs,'פינה',{size:11*fs}); }
+    x+=wPx+gapCm*sc;
+  });
+  return s;
+}
+/* assembled (complete) shower drawing for customer documents: isometric, sides joined at the corner, all dimensions outside */
+function assembledSVG(C,box,fs){
+  fs=fs||1; let s=''; const H=C.H; const sides=O.sides.filter(sd=>sd.els.length); const N=sides.length;
+  if(!N) return '';
+  const dirs = N===1? [[1,0]] : N===2? [[0.88,0.36],[0.88,-0.36]] : N===3? [[0.72,0.42],[1,0],[0.72,-0.42]] : sides.map((_,i)=>[Math.cos((i-(N-1)/2)*0.6),Math.sin((i-(N-1)/2)*0.6)*0.6]);
+  const geo=[]; let px=0,py=0; const pts=[];
+  sides.forEach((sd,si)=>{ const d=dirs[si]; const a0=[px,py]; sd.els.forEach((el,ei)=>{ const w=Number(el.w)||0; const a=[px,py], b=[px+d[0]*w,py+d[1]*w]; geo.push({el,si,ei,a,b,w,d,last:ei===sd.els.length-1}); pts.push(a,b); px=b[0]; py=b[1]; }); geo.push({tot:true,si,a:a0,b:[px,py],d,w:sd.els.reduce((x,e)=>x+(Number(e.w)||0),0),n:sd.els.length,stepW:sd.els.reduce((x,e)=>x+((e.type==='fixed'&&e.stepW&&e.stepH)?Number(e.stepW):0),0)}); });
+  const minX=Math.min(...pts.map(p=>p[0])), maxX=Math.max(...pts.map(p=>p[0])), minY=Math.min(...pts.map(p=>p[1])), maxY=Math.max(...pts.map(p=>p[1]));
+  const multi=sides.some(sd=>sd.els.length>1);
+  const hasStepOf=e=>e.type==='fixed'&&e.stepW&&e.stepH; const devOf=e=>{ const t=e.wTop!=null&&e.wTop!==''? Number(e.wTop) : (e.dev? Number(e.w)+Number(e.dev) : null); return (t!=null&&Math.abs(t-Number(e.w))>0.001)? t : null; };
+  const allEls=sides.flatMap(sd=>sd.els); const anyStep=allEls.some(hasStepOf);
+  const noteCount = allEls.reduce((a,e)=>a+(hasStepOf(e)?1:0)+(e.towel?1:0)+(e.extraHinge?1:0)+(devOf(e)!=null?1:0),0);
+  const firstEl=sides[0].els[0], lastEl=sides[N-1].els[sides[N-1].els.length-1];
+  const leftExtra = devOf(firstEl)!=null || hasStepOf(firstEl), rightExtra = devOf(lastEl)!=null || hasStepOf(lastEl);
+  const topDims = N===1; /* a front: dimensions above the glass; a corner: below, where the two sides' lines diverge */
+  const mL=(leftExtra?112:70)*fs, mR=(rightExtra?72:(N>1?40:20))*fs, mT=(topDims?(multi?78:48):36)*fs, mB=(topDims?(anyStep?(multi?62:34):14):(multi?62:(anyStep?62:34)))*fs + noteCount*15*fs + 6*fs;
+  const aw=box.w-mL-mR, ah=box.h-mT-mB;
+  const sc=Math.min(aw/((maxX-minX)||1), ah/((maxY-minY)+H));
+  const X=x=>box.x+mL+(aw-(maxX-minX)*sc)/2+(x-minX)*sc;
+  const Y=y=>box.y+mT+(ah-((maxY-minY)+H)*sc)/2+H*sc+(y-minY)*sc;   // floor line of point (top = Y-H*sc)
+  const h=H*sc;
+  const lab=(x,y,t,w,bold,size)=>boxLabel(x,y,t,{w:w*fs,h:22*fs,size:(size||13)*fs,bold});
+  const notes=[]; const typeNameOf=el=>({fixed:'קבוע',door:'דלת',harm:'הרמוניקה'})[el.type];
+  const arrow=(x1,y1,x2,y2)=>`<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="#111" stroke-width="1.4" marker-start="url(#ah)" marker-end="url(#ah)"/>`;
+  const nrm=d=>{ let n=[-d[1],d[0]]; const l=Math.hypot(n[0],n[1])||1; n=[n[0]/l,n[1]/l]; if(n[1]<0) n=[-n[0],-n[1]]; return n; };   // normal pointing down (outwards, below the floor)
+  const tick=(x,y,n,from,to)=>`<line x1="${x+n[0]*from}" y1="${y+n[1]*from}" x2="${x+n[0]*to}" y2="${y+n[1]*to}" stroke="#888" stroke-width="1"/>`;
+  // a dimension line parallel to an edge: from (ax,ay) to (bx,by), offset o along normal n (sign gives the side)
+  const dim=(ax,ay,bx,by,n,o,text,w,bold,size)=>{ const f=Math.sign(o)*4*fs; return tick(ax,ay,n,f,o+f)+tick(bx,by,n,f,o+f)+arrow(ax+n[0]*o,ay+n[1]*o,bx+n[0]*o,by+n[1]*o)+lab((ax+bx)/2+n[0]*o,(ay+by)/2+n[1]*o,text,w,bold,size); };
+  // walls at both ends
+  const first=geo[0], lastG=[...geo].reverse().find(g=>!g.tot);
+  const wall=(x,y)=>`<rect x="${x-5*fs}" y="${y-h-8*fs}" width="${10*fs}" height="${h+16*fs}" fill="#cfd6da" stroke="#9aa5ab" stroke-width="1"/>`;
+  s+=wall(X(first.a[0]),Y(first.a[1])); if(!isBathOrder(O)) s+=wall(X(lastG.b[0]),Y(lastG.b[1])); else s+=txt(X(lastG.b[0])+8*fs,Y(lastG.b[1])-h/2,'קצה פתוח',{size:10*fs,anchor:'end'});
+  // floor line
+  s+=`<polyline points="${geo.filter(g=>!g.tot).map(g=>`${X(g.a[0])},${Y(g.a[1])+6}`).join(' ')} ${X(lastG.b[0])},${Y(lastG.b[1])+6}" fill="none" stroke="#bbb" stroke-width="1"/>`;
+  // glasses
+  geo.filter(g=>!g.tot).forEach(g=>{
+    const {el}=g; const ax=X(g.a[0]),ay=Y(g.a[1]),bx=X(g.b[0]),by=Y(g.b[1]); const inf=C.info.get(el.id);
+    const lerp=t=>[ax+(bx-ax)*t, ay+(by-ay)*t]; const n=nrm(g.d); const up=[-n[0],-n[1]];
+    s+=`<polygon points="${ax},${ay} ${bx},${by} ${bx},${by-h} ${ax},${ay-h}" fill="${el.type==='fixed'?'#e9f1f4':'#f7fbfc'}" fill-opacity="0.9" stroke="#111" stroke-width="${el.type==='fixed'?2.6:2}" stroke-linejoin="round"/>`;
+    const wpx=Math.hypot(bx-ax,by-ay);
+    if(el.type==='fixed'){
+      const gl=C.glasses.find(q=>q.id===el.id);
+      const hasStep = hasStepOf(el)&&gl&&gl.step; const stepH=hasStep? Math.min(Number(el.stepH)*sc,h-10) : 0;
+      if(gl&&gl.hasWall){ const t=gl.wallSide==='left'?0.08:0.92; const stepOnWall = hasStep && gl.step.side===gl.wallSide; const tall = stepOnWall && stepH > h*0.12+8*fs;
+        const stepFrac = stepOnWall ? Math.min(0.9,Number(el.stepW)/(Number(el.w)||1)) : 0; const tLow = tall ? (gl.wallSide==='left'? stepFrac+0.06 : 1-stepFrac-0.06) : t; const fLow = (stepOnWall && !tall) ? Math.min(0.78, stepH/h+0.06) : 0.12;
+        { const [hx,hy]=lerp(t); s+=`<circle cx="${hx}" cy="${hy-h*0.88}" r="${4.5*fs}" fill="#fff" stroke="#111" stroke-width="2.2"/>`; } { const [hx,hy]=lerp(tLow); s+=`<circle cx="${hx}" cy="${hy-h*fLow}" r="${4.5*fs}" fill="#fff" stroke="#111" stroke-width="2.2"/>`; } }
+      if(hasStep){ const t=gl.step.side==='left'?0:1; const sw=Math.min(Number(el.stepW),Number(el.w))*sc, sh=stepH; const [cx,cy]=lerp(t); const dx=(t===0?1:-1); const ex=cx+dx*sw*g.d[0], ey=cy+dx*sw*g.d[1]; s+=`<polygon points="${cx},${cy} ${ex},${ey} ${ex},${ey-sh} ${cx},${cy-sh}" fill="#fff" stroke="#111" stroke-width="1.6"/>`;
+        // step: width on the bottom row (floor part + step part), height on a vertical dimension outside the wall
+        const o1=18*fs; const [fx,fy]=lerp(t===0?1:0); const floorW=Number(el.w)-Number(el.stepW);
+        s+=dim(ex,ey,fx,fy,n,o1,fmt(floorW),Math.min(50,Math.max(30,Math.hypot(fx-ex,fy-ey)/fs-6)),false,12);
+        if(sw>26*fs) s+=dim(cx,cy,ex,ey,n,o1,fmt(el.stepW),Math.max(26,sw/fs-6),false,11);
+        else { // too narrow for a label: leader line to a label outside, beyond the wall
+          const dirx=t===0?-1:1; const mx=(cx+ex)/2+n[0]*o1, my=(cy+ey)/2+n[1]*o1; const lx=mx+dirx*46*fs, ly=my+26*fs; s+=`<line x1="${mx}" y1="${my}" x2="${lx}" y2="${ly}" stroke="#555" stroke-width="1" stroke-dasharray="3 3"/>`; s+=lab(lx+dirx*14*fs,ly,'מדרגה '+fmt(el.stepW),58,false,11); }
+        const sideWall = (t===0 && g.si===0 && g.ei===0) || (t===1 && g.last && g.si===N-1); const dir=t===0?-1:1;
+        if(sideWall){ const vx=cx+dir*18*fs; s+=`<line x1="${vx}" y1="${cy}" x2="${vx}" y2="${cy-sh}" stroke="#111" stroke-width="1.4" marker-start="url(#ah)" marker-end="url(#ah)"/>`; s+=`<line x1="${cx+dir*5*fs}" y1="${cy-sh}" x2="${vx+dir*5*fs}" y2="${cy-sh}" stroke="#888" stroke-width="1"/>`; s+=lab(vx,cy-sh/2,fmt(el.stepH),34,false,11); }
+        else if(sh>30*fs) s+=lab(ex+dx*16*fs,ey-sh/2,fmt(el.stepH),34,false,11);
+        const sideName = N===1 ? 'בחזית' : (g.si===0?'בצלע שמאל':g.si===N-1?'בצלע ימין':'בחזית'); notes.push(`מדרגה ${sideName} (${typeNameOf(el)} ${fmt(el.w)}): רוחב ${fmt(el.stepW)} ס"מ, גובה ${fmt(el.stepH)} ס"מ – רוחב הצלע התחתונה ${fmt(floorW)} ס"מ`); }
+    } else if(inf){
+      const hT = inf.hinge==='left'?0:1, cT = inf.hinge==='left'?0.9:0.1;   // hinge drawn on the joint itself (wall edge or the fixed glass edge)
+      (el.extraHinge?[0.15,0.66,0.85]:[0.15,0.85]).forEach(f=>{ const [hx,hy]=lerp(hT); s+=`<rect x="${hx-9*fs}" y="${hy-h*f-11*fs}" width="${18*fs}" height="${22*fs}" rx="${2*fs}" fill="#fff" stroke="#111" stroke-width="2.4"/><line x1="${hx}" y1="${hy-h*f-11*fs}" x2="${hx}" y2="${hy-h*f+11*fs}" stroke="#111" stroke-width="1.2"/>`; });
+      if(el.extraHinge) notes.push(`${typeNameOf(el)} ${fmt(el.w)}: ציר נוסף בחלק העליון (3 צירים)`);
+      if(el.towel){ // the towel bar replaces the handle, at handle height
+        const [tx1,ty1]=lerp(0.2), [tx2,ty2]=lerp(0.8); const yy=h*0.5; s+=`<line x1="${tx1}" y1="${ty1-yy}" x2="${tx2}" y2="${ty2-yy}" stroke="#111" stroke-width="${3*fs}" stroke-linecap="round"/>`; [[tx1,ty1],[tx2,ty2]].forEach(([x,y])=>s+=`<circle cx="${x}" cy="${y-yy}" r="${3*fs}" fill="#fff" stroke="#111" stroke-width="1.6"/>`); notes.push(`${typeNameOf(el)} ${fmt(el.w)}: ידית מגבת לרוחב במקום ידית`); }
+      else { const [cx,cy]=lerp(cT); s+=`<circle cx="${cx}" cy="${cy-h*0.5}" r="${4.5*fs}" fill="#fff" stroke="#111" stroke-width="1.8"/>`; }
+      if(el.type==='harm'){ const wTot=Number(el.w)||1; const innerShare=Math.min(0.9,Math.max(0.1,((wTot-S.balloon-S.harmChair-S.harmMagnet)/2+S.harmInnerExtra/2+S.balloon)/wTot)); const [fx,fy]=lerp(inf.hinge==='left'?innerShare:1-innerShare); s+=`<line x1="${fx}" y1="${fy}" x2="${fx}" y2="${fy-h}" stroke="#111" stroke-width="1.2"/>`; [0.15,0.85].forEach(f=>s+=`<rect x="${fx-7*fs}" y="${fy-h*f-8*fs}" width="${14*fs}" height="${16*fs}" rx="${2*fs}" fill="#fff" stroke="#111" stroke-width="2"/>`); }
+    }
+    const typeName=typeNameOf(el);
+    if(wpx>44*fs){ const [mx,my]=lerp(0.5); s+=txt(mx,my-h*0.72,typeName,{size:12*fs}); }
+    // wall deviation: slant the wall edge (exaggerated) and label the top and bottom widths outside the wall
+    const wTop=devOf(el);
+    if(wTop!=null){
+      const side = el.devSide&&el.devSide!=='auto' ? el.devSide : (g.si===0&&g.ei===0 ? 'left' : (g.last&&g.si===N-1 ? 'right' : (inf? (inf.hinge==='left'?'right':'left') : 'right')));
+      const diff=wTop-Number(el.w); const ux=(bx-ax)/(wpx||1), uy=(by-ay)/(wpx||1); const push=Math.sign(diff)*Math.min(16*fs,Math.max(6*fs,Math.abs(diff)*sc*4));
+      const [ex0,ey0] = side==='left'? [ax,ay] : [bx,by]; const dir = side==='left'? -1 : 1; const tx=ex0+dir*push*ux, ty=ey0-h+dir*push*uy;
+      s+=`<line x1="${ex0}" y1="${ey0}" x2="${tx}" y2="${ty}" stroke="#b4540a" stroke-width="2" stroke-dasharray="6 4"/>`;
+      s+=lab(ex0+dir*38*fs,ey0-h-2*fs,'למעלה '+fmt(wTop),60,false,11); s+=lab(ex0+dir*38*fs,ey0+14*fs,'למטה '+fmt(el.w),54,false,11);
+      notes.push(`סטייה בקיר ${side==='left'?'שמאל':'ימין'} (${typeName} ${fmt(el.w)}): למטה ${fmt(el.w)}, למעלה ${fmt(wTop)} – ${diff>0?'רחב':'צר'} יותר למעלה ב-${fmt(Math.abs(diff))} ס"מ`);
+    }
+    // element width – row 1 (above the glass for a front, below the floor for a corner)
+    if(topDims) s+=dim(ax,ay-h,bx,by-h,up,22*fs,fmt(el.w),Math.min(56,Math.max(34,wpx/fs-8))); else if(!hasStepOf(el)) s+=dim(ax,ay,bx,by,n,18*fs,fmt(el.w),Math.min(56,Math.max(34,wpx/fs-8)));
+  });
+  // side totals above (row 2) and, when a side has a step, the reduced bottom width below
+  geo.filter(g=>g.tot).forEach(g=>{ const ax=X(g.a[0]),ay=Y(g.a[1]),bx=X(g.b[0]),by=Y(g.b[1]); const n=nrm(g.d), up=[-n[0],-n[1]];
+    if(g.n>1){ if(topDims) s+=dim(ax,ay-h,bx,by-h,up,52*fs,fmt(g.w)+' ס"מ',78,true); else if(!(g.stepW>0)) s+=dim(ax,ay,bx,by,n,50*fs,fmt(g.w)+' ס"מ',78,true); }
+    if(g.stepW>0 && g.n>1) s+=dim(ax,ay,bx,by,n,50*fs,'למטה '+fmt(g.w-g.stepW)+' ס"מ',96,true,12); });
+  // side names
+  if(N>1) geo.filter(g=>g.tot).forEach((g,si)=>{ const name= si===0?'צלע שמאל':si===N-1?'צלע ימין':'חזית'; const mx=(X(g.a[0])+X(g.b[0]))/2, my=(Y(g.a[1])+Y(g.b[1]))/2-h; s+=txt(mx,my-14*fs,name,{size:12*fs,bold:true}); });
+  // height at the left wall – pushed out when there are deviation / step labels there
+  const hx=X(first.a[0])-(leftExtra?80:34)*fs, yb=Y(first.a[1]); s+=arrow(hx,yb-h,hx,yb); s+=lab(hx,yb-h/2,fmt(H)+' ס"מ',66,true);
+  // notes (step, deviation, towel bar, extra hinge) – bottom right of the drawing box
+  notes.forEach((n,k)=>s+=txt(box.x+box.w-4,box.y+box.h-4-(notes.length-1-k)*15*fs,'• '+n,{size:11*fs,anchor:'start'}));
+  return s;
+}
+/* signed measurement form – one page: details, sketch, terms, customer + installer signatures (as signed at the customer's home) */
+function sigPath(strokes,x,y,w,h){ if(!strokes||!strokes.length) return ''; const sc=Math.min(w/600,h/200); return strokes.map(st=>'<polyline fill="none" stroke="#1a237e" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" points="'+st.map(p=>(x+p[0]*sc).toFixed(1)+','+(y+p[1]*sc).toFixed(1)).join(' ')+'"/>').join(''); }
+function measureFormPages(m,sketchFor,terms){
+  /* m: a measurement {customer, items:[{room, opts:[order]}]} or a single order (normalised below). sketchFor(order, box) draws one shower.
+     Page 1 holds the details, up to two sketches, the terms and the signatures; more showers continue on extra pages (4 per page). */
+  if(!m.items){ const o=m; m=Object.assign({},o,{address:o.room||'',items:[{room:'',opts:[o]}]}); }
+  const W=1000,PH=1414; const pages=[]; let s=`<rect width="${W}" height="${PH}" fill="#fff"/>`;
+  const head=(sub)=>{ s+=txt(500,70,'טופס מדידה – bariline'+(sub?' – '+sub:''),{size:34,bold:true}); s+=`<line x1="300" y1="84" x2="700" y2="84" stroke="#111" stroke-width="2"/>`; };
+  head('');
+  const d=(m.measuredAt? new Date(m.measuredAt) : (m.date? new Date(m.date) : new Date())); const ds=isNaN(d)? '' : `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}`;
+  s+=txt(940,120,`תאריך: ${ds}`,{size:16,anchor:'start'}); if(m.no) s+=txt(60,120,`מס' הזמנה: ${m.no}`,{size:16,anchor:'start'});
+  const T={fixed:'קבוע',door:'דלת',harm:'הרמוניקה'};
+  const cfgOf=o=>{ const N=(o.sides||[]).length; return (o.sides||[]).map((sd,si)=>{ const els=(N>=2&&si===N-1)? [...sd.els].reverse(): sd.els; return els.map(e=>`${T[e.type]} ${fmt(e.w)}${e.wTop&&Number(e.wTop)!==Number(e.w)?` (למעלה ${fmt(e.wTop)} – סטייה בקיר${e.devSide==='left'?' שמאל':e.devSide==='right'?' ימין':''})`:''}${e.stepW&&e.stepH?` מדרגה ${fmt(e.stepW)}×${fmt(e.stepH)}`:''}${e.towel?' +ידית מגבת':''}${e.extraHinge?' +ציר נוסף':''}`).join(' + '); }).join(' / '); };
+  const opts=[]; m.items.forEach((it,i)=>it.opts.forEach((o,j)=>{ const label=(m.items.length>1?(it.room||`מקלחון ${i+1}`):(it.room||'מקלחון'))+(it.opts.length>1?` – אופציה ${o.opt||(j===0?'א':'ב')}`:''); opts.push({label,o}); }));
+  const rows=[['שם החנות',m.store],['שם הלקוח',m.customer],['כתובת',m.address],['טלפון',m.customerPhone]];
+  opts.forEach(({label,o})=>{ const N=(o.sides||[]).length; rows.push([label,`${N>=2?'פינתי':N===1?'חזית':''} ${o.model||''} · ${o.glass||''} ${o.thick||''} מ"מ · ${o.finish||''} · גובה ${fmt(o.height||0)} ס"מ · ${cfgOf(o)}`]); });
+  const note=m.measuredNote||(m.measuredAt?m.note:''); if(note) rows.push(['הערות המודד',note]);
+  if(opts.length>1) s+=`<rect x="60" y="138" width="880" height="30" fill="#fdf0e3" stroke="#b4540a" rx="4"/>`+txt(500,159,`שימו לב: במדידה הזו ${opts.length} מקלחונים / אופציות${opts.length>2?' – המשך השרטוטים בעמוד הבא':''}`,{size:15,bold:true});
+  let y=opts.length>1?196:160; rows.forEach(([k,v])=>{ s+=txt(940,y,k+':',{size:15,bold:true,anchor:'start'}); const lines=wrapLines(String(v||''),72); lines.forEach((l,i)=>{ s+=txt(750,y+i*21,l,{size:15,anchor:'start'}); }); s+=`<line x1="60" y1="${y+6}" x2="755" y2="${y+6}" stroke="#bbb" stroke-width="0.8"/>`; y+=Math.max(1,lines.length)*21+9; });
+  const tl=String(terms||'').split('\n').flatMap(l=>l.trim()? wrapLines(l,110): []);
+  const sigH=120, termsH=tl.length*18+14; const skH=Math.max(180, PH-y-termsH-sigH-30);
+  const firstN=Math.min(opts.length,2); const cols=firstN<=1?1:2; const cw=880/cols;
+  const drawCell=(o,label,bx,by,w,hh,showLabel)=>{ if(showLabel) s+=txt(bx+w/2,by+14,label,{size:13,bold:true}); try{ s+=sketchFor(o,{x:bx+10,y:by+(showLabel?20:0),w:w-20,h:hh-(showLabel?26:6)}); }catch(e){} };
+  opts.slice(0,firstN).forEach(({label,o},k)=>{ const bx=60+(cols-1-k)*cw; drawCell(o,label,bx,y+6,cw,skH,opts.length>1); });
+  y+=skH+16;
+  tl.forEach(l=>{ s+=txt(940,y,l,{size:12.5,anchor:'start'}); y+=18; });
+  const sy=PH-sigH+12;
+  s+=txt(940,sy,'חתימת הלקוח:',{size:15,bold:true,anchor:'start'}); s+=`<line x1="560" y1="${sy+62}" x2="820" y2="${sy+62}" stroke="#111"/>`; s+=sigPath(m.sigCustomer,565,sy-16,250,76); if(m.customer) s+=txt(690,sy+80,m.customer,{size:12});
+  s+=txt(440,sy,'חתימת המודד:',{size:15,bold:true,anchor:'start'}); s+=`<line x1="60" y1="${sy+62}" x2="320" y2="${sy+62}" stroke="#111"/>`; s+=sigPath(m.sigInstaller,65,sy-16,250,76); if(m.measuredBy) s+=txt(190,sy+80,m.measuredBy,{size:12});
+  if(m.sigCustomer&&m.sigCustomer.length) s+=txt(500,PH-10,`נחתם על ידי הלקוח במעמד המדידה · ${ds}${m.measuredAt?' '+new Date(m.measuredAt).toLocaleTimeString('he-IL',{hour:'2-digit',minute:'2-digit'}):''}`,{size:11});
+  pages.push(svgWrap(W,PH,s));
+  // continuation pages: 4 sketches per page
+  const rest=opts.slice(firstN); const per=4;
+  for(let pg=0; pg<rest.length; pg+=per){ s=`<rect width="${W}" height="${PH}" fill="#fff"/>`; head('המשך'); s+=txt(940,120,`${m.customer||''} · ${ds}`,{size:16,anchor:'start'}); s+=txt(500,150,`עמוד ${pages.length+1} – שרטוטי המקלחונים הנוספים (שייך לטופס החתום בעמוד 1)`,{size:14});
+    const chunk=rest.slice(pg,pg+per); const c2=chunk.length===1?1:2, r2=Math.ceil(chunk.length/c2); const cw2=880/c2, ch2=(PH-200-40)/Math.max(r2,1);
+    chunk.forEach(({label,o},k)=>{ const c=k%c2, r=Math.floor(k/c2); drawCell(o,label,60+(c2-1-c)*cw2,180+r*ch2,cw2,ch2,true); });
+    pages.push(svgWrap(W,PH,s)); }
+  return pages;
+}
+function measureFormSVG(m,sketchFor,terms){ return measureFormPages(m,sketchFor,terms)[0]; }
+function generalSVG(C,opts){
+  opts=opts||{}; const W=1000, PH=1414; let s='';
+  s+=`<rect width="${W}" height="${PH}" fill="#fff"/>`;
+  const N=O.sides.length;
+  const kind = N>=2 ? 'פינתי' : 'חזית';
+  if(opts.customer){
+    s+=txt(950,70,opts.title||'',{size:26,bold:true,anchor:'start'});
+    s+=txt(950,108,`${kind} ${O.model?'דגם '+O.model:''}`,{size:20,anchor:'start'});
+    s+=txt(950,140,`זכוכית ${O.thick} מ"מ ${O.glass||''} · פרזול ${O.finish||'ניקל'}`,{size:18,anchor:'start'});
+    s+=txt(950,170,`גובה ${fmt(C.H)} ס"מ · ${opts.opening||''}`,{size:18,anchor:'start'});
+    if(opts.logo) s+=`<image href="${opts.logo}" x="60" y="40" width="260" height="140" preserveAspectRatio="xMinYMin meet"/>`;
+  } else {
+  s+=txt(180,70,O.date? O.date.split('-').reverse().join('-'):'',{size:14,anchor:'end',dir:'ltr'});
+  s+=txt(640,120,`${kind} דגם ${O.model||''}`,{size:32,bold:true});
+  s+=txt(640,160,`זכוכית: ${O.thick} מ"מ ${O.glass||''}${O.finish?' + '+O.finish:''}`,{size:22,bold:true});
+  s+=txt(640,195,`חנות: ${O.store||''} ${O.room||''}`,{size:22,bold:true});
+  }
+  if(opts.customer) s+=assembledSVG(C,{x:80,y:230,w:840,h:680},1.15); else s+=projectionSVG(C,1);
+  if(opts.customer){
+    const lines=opts.lines||[]; lines.forEach((l,i)=>s+=txt(950,1000+i*30,l,{size:18,anchor:'start'}));
+    s+=txt(950,1370,'המידות ברוטו לפי המדידה; שרטוט להמחשה, ללא קנה מידה.',{size:13,anchor:'start'});
+    return svgWrap(W,PH,s);
+  }
+  // hardware list + customer box
+  const hwLines=(O.hwText!=null?O.hwText:hwToText(C.hw)).split('\n').filter(l=>l.trim());
+  const boxH=Math.max(180, hwLines.length*24+30);
+  s+=`<rect x="90" y="1070" width="330" height="${boxH}" fill="#fff" stroke="#111"/>`;
+  hwLines.forEach((l,i)=>s+=txt(400,1100+i*24,l,{size:17,anchor:'start'}));
+  s+=`<rect x="520" y="1070" width="330" height="${boxH}" fill="#fff" stroke="#111"/>`;
+  s+=txt(835,1100,O.customer||'',{size:18,bold:true,anchor:'start'});
+  s+=txt(835,1128,`${O.room||''}`,{size:15,anchor:'start'});
+  s+=txt(835,1156,O.no?`הזמנה ${O.no}`:'',{size:15,anchor:'start'});
+  return svgWrap(W,PH,s);
+}
+function hwToText(hw){ return Object.entries(hw).map(([k,v])=>`${v} ${k}`).join('\n'); }
+
+
+/* ---------------- export ---------------- */
+async function svgToPngBlob(svg, scale=1.6){
+  const pe=new DOMParser().parseFromString(svg,'image/svg+xml').querySelector('parsererror'); if(pe) throw new Error('SVG: '+pe.textContent.slice(0,120));
+  const img=new Image(); const url='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(svg);
+  await new Promise((res,rej)=>{ img.onload=res; img.onerror=rej; img.src=url; });
+  const c=document.createElement('canvas'); c.width=1000*scale; c.height=1414*scale;
+  const ctx=c.getContext('2d'); ctx.fillStyle='#fff'; ctx.fillRect(0,0,c.width,c.height); ctx.drawImage(img,0,0,c.width,c.height);
+  return await new Promise(res=>c.toBlob(res,'image/png'));
+}
+/* measurement link – the whole measurement is encoded inside the URL hash (no server, no database) */
+const b64u={ enc:u8=>btoa(String.fromCharCode(...u8)).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,''), dec:s=>{ s=s.replace(/-/g,'+').replace(/_/g,'/'); while(s.length%4) s+='='; return Uint8Array.from(atob(s),c=>c.charCodeAt(0)); } };
+async function encodeMeasure(o){ const u8=new TextEncoder().encode(JSON.stringify(o));
+  if(window.CompressionStream){ try{ const cs=new CompressionStream('deflate-raw'); const w=cs.writable.getWriter(); w.write(u8); w.close(); const buf=new Uint8Array(await new Response(cs.readable).arrayBuffer()); return 'z.'+b64u.enc(buf); }catch(e){} }
+  return 'j.'+b64u.enc(u8); }
+async function decodeMeasure(str){ const i=str.indexOf('.'); const kind=str.slice(0,i), data=str.slice(i+1); let u8=b64u.dec(data||'');
+  if(kind==='z'){ const ds=new DecompressionStream('deflate-raw'); const w=ds.writable.getWriter(); w.write(u8); w.close(); u8=new Uint8Array(await new Response(ds.readable).arrayBuffer()); }
+  return JSON.parse(new TextDecoder().decode(u8)); }
+function measureFromText(t){ const m=String(t||'').match(/#m=([A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+)/); return m? m[1] : (/^[jz]\.[A-Za-z0-9_\-]+$/.test(String(t||'').trim())? String(t).trim() : null); }
+let downloads=null; (async()=>{ try{ downloads = window.claude ? await window.claude.use('downloads') : null; }catch(e){ downloads=null; } })();
+function sketchForOrder(ord,box){ const saved=O; O=ord; try{ const c=compute(); return assembledSVG(c,box,1.0); } finally { O=saved; } }
+function docSVG(which){ return which==='factory'? factorySVG(CUR) : which==='measure'? measureFormSVG(MEAS&&MEAS.m&&MEAS.m.items? MEAS.m : O, sketchForOrder, S.measureTerms) : generalSVG(CUR); }
+function measurePages(){ return measureFormPages(MEAS&&MEAS.m&&MEAS.m.items? MEAS.m : O, sketchForOrder, S.measureTerms); }
+function printDoc(which){ const svg= which==='measure'? measurePages().join('') : docSVG(which); const w=window.open('','_blank'); if(!w){ alert('הדפדפן חסם את חלון ההדפסה – אפשר הרשאת חלונות קופצים לאתר הזה.'); return; } w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>הדפסה</title><style>@page{size:A4;margin:0}html,body{margin:0;background:#fff}svg{width:210mm;height:297mm;display:block}@media print{svg{page-break-after:always}}</style></head><body>${svg}</body></html>`); w.document.close(); w.focus(); setTimeout(()=>{ w.print(); },400); }
+async function doDownload(which){
+  const msg=document.getElementById(which==='factory'?'msgFactory':'msgGeneral'); msg.textContent='מכין תמונה…';
+  try{
+    const svg = docSVG(which);
+    if(which==='measure'){ const pgs=measurePages(); for(let k=0;k<pgs.length;k++){ const b=await svgToPngBlob(pgs[k]); const nm=`${O.no||'הזמנה'} ${O.customer||''} טופס מדידה חתום${pgs.length>1?' עמוד '+(k+1):''}.png`.replace(/\s+/g,' ').trim(); if(downloads) await downloads.save({filename:nm,data:b}); else { const a=document.createElement('a'); a.href=URL.createObjectURL(b); a.download=nm; document.body.appendChild(a); a.click(); a.remove(); } } msg.textContent=pgs.length>1?`נשמרו ${pgs.length} עמודים.`:'הקובץ נשמר.'; return; }
+    const blob=await svgToPngBlob(svg);
+    const name=`${O.no||'הזמנה'} ${O.customer||''} ${which==='factory'?'מפעל':'מתקין'}.png`.replace(/\s+/g,' ').trim();
+    if(which==='factory') logCost(true);
+    if(downloads){ await downloads.save({filename:name,data:blob}); msg.textContent='הקובץ נשמר.'; return; }
+    // outside the Claude viewer: a regular browser download
+    const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=name; document.body.appendChild(a); a.click(); a.remove();
+    msg.textContent='ההורדה התחילה. אם לא נשמר – השתמש ב"העתק תמונה".';
+  }catch(e){ msg.textContent = e&&e.code==='declined' ? 'ההורדה בוטלה.' : e&&e.code==='rate_limited' ? 'יש כבר בקשת הורדה פתוחה – אשר אותה ונסה שוב.' : 'ההורדה נכשלה ('+(e&&e.code||'')+'). נסה "העתק תמונה".'; }
+}
+async function doCopy(which){
+  const msg=document.getElementById(which==='factory'?'msgFactory':'msgGeneral'); msg.textContent='מעתיק…';
+  try{
+    const svg = docSVG(which);
+    const blob=await svgToPngBlob(svg);
+    await navigator.clipboard.write([new ClipboardItem({'image/png':blob})]);
+    msg.textContent='התמונה הועתקה – אפשר להדביק בוואטסאפ / במייל.'; if(which==='factory') logCost(true);
+  }catch(e){ msg.textContent='העתקה לא נתמכת בדפדפן הזה – השתמש בהורדה.'; }
+}
+
+/* ---------------- form rendering ---------------- */
+const $=id=>document.getElementById(id);
+function renderForm(){
+  $('f_no').value=O.no; $('f_date').value=O.date; $('f_customer').value=O.customer; $('f_room').value=O.room; $('f_store').value=O.store; $('f_model').value=O.model;
+  const gl=$('f_glass'); gl.innerHTML=S.glassTypes.split(',').map(g=>g.trim()).filter(Boolean).map(g=>`<option${g===O.glass?' selected':''}>${esc(g)}</option>`).join('');
+  if(![...gl.options].some(o=>o.value===O.glass)){ gl.insertAdjacentHTML('beforeend',`<option selected>${esc(O.glass)}</option>`); }
+  $('f_thick').value=O.thick; $('f_height').value=O.height; $('f_finish').value=O.finish; $('f_note').value=O.note; $('f_etchFrom').value=O.etchFrom??''; $('f_etchTo').value=O.etchTo??'';
+  renderSides();
+}
+function renderSides(){
+  const c=$('sides'); c.innerHTML= O.sides.length? '' : '<div class="hint" style="margin-top:8px">אין צדדים עדיין. הוסף צד ואז הוסף לו קבוע / דלת / הרמוניקה.</div>';
+  O.sides.forEach((side,si)=>{
+    const d=document.createElement('div'); d.className='side';
+    const rev = O.sides.length>=2 && si===O.sides.length-1;
+    const name = O.sides.length===1?'חזית (משמאל לימין)':(si===0?'צד שמאל – מהקיר לפינה':si===O.sides.length-1?'צד ימין – מהקיר לפינה':`צד ${si+1} (משמאל לימין)`);
+    d.innerHTML=`<div class="side-head"><b>${name}</b><div class="row">
+      <button class="small" data-add="fixed">+ קבוע</button><button class="small" data-add="door">+ דלת</button><button class="small" data-add="harm">+ הרמוניקה</button>
+      <button class="small ghost" data-del-side title="מחק צד">✕</button></div></div>`;
+    if(!side.els.length) d.insertAdjacentHTML('beforeend','<div class="hint">צד ריק – הוסף קבוע / דלת / הרמוניקה.</div>');
+    const order = rev ? side.els.map((_,i)=>side.els.length-1-i) : side.els.map((_,i)=>i);
+    order.forEach((ei,di)=>{ const el=side.els[ei];
+      const e=document.createElement('div'); e.className='el';
+      const typeName={fixed:'קבוע',door:'דלת',harm:'הרמוניקה'}[el.type];
+      const pos = O.sides.length>=2 ? (di===0?'צמוד לקיר':di===side.els.length-1?'בפינה':'') : '';
+      e.innerHTML=`<div class="el-head"><span class="chip ${el.type==='fixed'?'':'door'}">${typeName} ${di+1}${pos?' · '+pos:''}</span>
+        <div class="row"><button class="small ghost" data-mv="${rev?1:-1}" title="הזז לכיוון הקיר">${rev?'←':'→'}</button><button class="small ghost" data-mv="${rev?-1:1}" title="הזז לכיוון הפינה">${rev?'→':'←'}</button><button class="small ghost" data-del title="מחק">✕</button></div></div>
+        <div class="grid3">
+          <label>רוחב ברוטו<input type="number" step="0.1" data-k="w" value="${el.w||''}"></label>
+          <label>סטייה בקיר (ס"מ, למעלה)<input type="number" step="0.1" data-k="dev" value="${el.dev??''}" placeholder="0" title="חיובי = למעלה רחב יותר, שלילי = למעלה צר יותר. 3 מ\"מ = 0.3"></label>
+          ${el.type!=='fixed'?`<label>ציר<select data-k="hinge"><option value="auto"${el.hinge==='auto'?' selected':''}>אוטומטי</option><option value="left"${el.hinge==='left'?' selected':''}>שמאל</option><option value="right"${el.hinge==='right'?' selected':''}>ימין</option></select></label>`:
+          `<label>מדרגה: רוחב<input type="number" step="0.1" data-k="stepW" value="${el.stepW??''}" placeholder="אין"></label>`}
+        </div>
+        <div class="grid3" style="margin-top:6px">
+          ${el.type==='fixed'?`<label>מדרגה: גובה<input type="number" step="0.1" data-k="stepH" value="${el.stepH??''}"></label><label>צד המדרגה<select data-k="stepSide"><option value="auto"${el.stepSide==='auto'?' selected':''}>צד הקיר</option><option value="left"${el.stepSide==='left'?' selected':''}>שמאל</option><option value="right"${el.stepSide==='right'?' selected':''}>ימין</option></select></label>`:'<span></span><span></span>'}
+          ${el.type==='fixed'?`<label>מדרגה: הרוחב שנמדד הוא<select data-k="stepMeasured"><option value="full"${el.stepMeasured!=='bottom'?' selected':''}>הרוחב המלא (העליון)</option><option value="bottom"${el.stepMeasured==='bottom'?' selected':''}>הרוחב התחתון (ליד המדרגה)</option></select></label>`:''}
+          ${el.type!=='fixed'?`<label style="flex-direction:row;align-items:center;gap:6px;padding-top:16px"><input type="checkbox" data-k="extraHinge" ${el.extraHinge?'checked':''} style="width:auto"> ציר נוסף למעלה</label>`:''}
+          <label style="flex-direction:row;align-items:center;gap:6px;padding-top:16px"><input type="checkbox" data-k="towel" ${el.towel?'checked':''} style="width:auto"> ידית מגבת (לרוחב)</label>
+          <label>צד הסטייה<select data-k="devSide"><option value="auto"${el.devSide==='auto'?' selected':''}>אוטומטי</option><option value="left"${el.devSide==='left'?' selected':''}>שמאל</option><option value="right"${el.devSide==='right'?' selected':''}>ימין</option></select></label>
+        </div>
+        ${el.towel?`<div class="grid3" style="margin-top:6px"><label>מגבת: מקצה שמאל (ס"מ)<input type="number" step="0.5" data-k="towelL" value="${el.towelL??''}" placeholder="${S.towelEdge}"></label><label>מגבת: מקצה ימין (ס"מ)<input type="number" step="0.5" data-k="towelR" value="${el.towelR??''}" placeholder="${S.towelEdge}"></label><label>מגבת: גובה מהרצפה (ס"מ)<input type="number" step="0.5" data-k="towelY" value="${el.towelY??''}" placeholder="מרכז"></label></div>`:''}
+        <div class="hint" id="elinfo-${el.id}" style="margin-top:6px"></div>`;
+      e.querySelectorAll('[data-k]').forEach(inp=>inp.addEventListener('input',()=>{ const k=inp.dataset.k; let v=inp.value; if(inp.type==='checkbox') v=inp.checked; else if(inp.type==='number'){ v = v===''?null:Number(v); if(k==='w') v=v||0; } el[k]=v; if(k==='towel'){ renderSides(); } recalc(); }));
+      e.querySelector('[data-del]').onclick=()=>{ side.els.splice(ei,1); renderSides(); recalc(); };
+      e.querySelectorAll('[data-mv]').forEach(b=>b.onclick=()=>{ const t=ei+Number(b.dataset.mv); if(t<0||t>=side.els.length) return; [side.els[ei],side.els[t]]=[side.els[t],side.els[ei]]; renderSides(); recalc(); });
+      d.appendChild(e);
+    });
+    d.querySelectorAll('[data-add]').forEach(b=>b.onclick=()=>{ const n=newEl(b.dataset.add,0); if(rev) side.els.unshift(n); else side.els.push(n); renderSides(); recalc(); });
+    d.querySelector('[data-del-side]').onclick=()=>{ O.sides.splice(si,1); renderSides(); recalc(); };
+    c.appendChild(d);
+  });
+}
+['f_no','f_date','f_customer','f_room','f_store','f_model','f_glass','f_thick','f_height','f_finish','f_note','f_etchFrom','f_etchTo'].forEach(id=>$(id).addEventListener('input',()=>{ O[id.slice(2)]=$(id).value; recalc(); if(id==='f_model') modelFieldChanged(); }));
+$('f_model').addEventListener('change',modelFieldChanged);
+$('btnAddLeft').onclick=()=>{ if(O.sides.length>=3) return; O.sides.unshift({els:[]}); renderSides(); recalc(); };
+$('btnAddRight').onclick=()=>{ if(O.sides.length>=3) return; O.sides.push({els:[]}); renderSides(); recalc(); };
+$('btnNew').onclick=()=>{ O=newOrder(); renderForm(); recalc(); };
+Object.entries(EXAMPLES).forEach(([k,v])=>$('exampleSel').insertAdjacentHTML('beforeend',`<option value="${k}">${esc(v.label)}</option>`));
+$('exampleSel').onchange=e=>{ if(e.target.value){ loadExample(e.target.value); e.target.value=''; } };
+
+/* ---------------- recalc + render outputs ---------------- */
+let CUR=null;
+function recalc(){
+  CUR=compute();
+  const w=$('warns'); w.textContent=CUR.warns.join(' '); w.classList.toggle('show',CUR.warns.length>0);
+  $('sheetFactory').innerHTML=factorySVG(CUR);
+  if(O.hwText==null) $('hwText').value=hwToText(CUR.hw);
+  $('sheetGeneral').innerHTML=generalSVG(CUR);
+  // calc table
+  let t='<tr><th>זכוכית</th><th>רוחב תחתון</th><th>רוחב עליון</th><th>גובה</th><th>פינויים</th><th>קדחים</th><th>חישוב</th></tr>';
+  CUR.glasses.forEach(g=>{ t+=`<tr><td>${esc(g.label)}</td><td>${fmt(g.wB)}</td><td>${fmt(g.wT)}</td><td>${fmt(g.h)}</td><td>${g.notches&&g.notches.length?g.notches.map(n=>n==='left'?'פינויים משמאל':'פינויים מימין').join(', ')+(g.hingeName?' ('+esc(g.hingeName)+')':'')+(g.extraHinge?' + ציר נוסף':''):'—'}</td><td>${esc(g.holes.map(h=>({handle:'ידית',wall:'חיבור קיר',harm:'ציר הרמוניקה',towel:'ידית מגבת'})[h.kind]+' '+(h.side?(h.side==='left'?'שמאל':'ימין'):'לרוחב')).join(', ')||'—')}</td><td>${esc(g.formula)}</td></tr>`; });
+  $('calcTable').innerHTML=t;
+  if(!$('tab-cost').hidden) renderCostTable();
+  // per-element info lines
+  O.sides.forEach(side=>side.els.forEach(el=>{ const n=document.getElementById('elinfo-'+el.id); if(!n) return; const gs=CUR.glasses.filter(g=>g.id===el.id||g.id===el.id+'a'||g.id===el.id+'b'); const si=O.sides.indexOf(side), ei=side.els.indexOf(el); const L=neighbor(si,ei,-1), R=neighbor(si,ei,+1);
+    const nm=n2=>n2.kind==='wall'?'קיר':n2.kind==='open'?'קצה פתוח (אמבטיון)':`${({fixed:'קבוע',door:'דלת',harm:'הרמוניקה'})[n2.el.type]} ${fmt(n2.el.w)}${n2.corner?' (מעבר לפינה)':''}`;
+    const inf=CUR.info.get(el.id); let conn='';
+    if(inf){ conn = ` | ציר ב${inf.hinge==='left'?'שמאל':'ימין'} → ${inf.hingeName}; נסגר ב${inf.hinge==='left'?'ימין':'שמאל'} על ${nm(inf.cn)} → ${inf.magnetName||'ללא מגנט'}`; }
+    n.innerHTML=`<b>משמאל:</b> ${esc(nm(L))} · <b>מימין:</b> ${esc(nm(R))}${esc(conn)}<br>`+esc(gs.map(g=>`${g.label}: ${fmt(g.wB)}${Math.abs(g.wT-g.wB)>0.01?'/'+fmt(g.wT)+' למעלה':''} × ${fmt(g.h)}${g.kind==='fixed'&&g.notches.length?' | פינויים לצירי הדלת ב'+g.notches.map(n=>n==='left'?'שמאל':'ימין').join(' ו'):''}`).join(' · ')); }));
+
+}
+$('hwText').addEventListener('input',()=>{ O.hwText=$('hwText').value; $('sheetGeneral').innerHTML=generalSVG(CUR); });
+$('hwReset').onclick=()=>{ O.hwText=null; recalc(); };
+$('dlFactory').onclick=()=>doDownload('factory'); $('dlBoth').onclick=async()=>{ await doDownload('factory'); await doDownload('general'); }; $('dlMeasure').onclick=()=>doDownload('measure');
+$('prFactory').onclick=()=>{ printDoc('factory'); logCost(true); }; $('prGeneral').onclick=()=>printDoc('general'); $('prMeasure').onclick=()=>printDoc('measure');
+$('dlGeneral').onclick=()=>doDownload('general');
+$('cpFactory').onclick=()=>doCopy('factory'); $('cpGeneral').onclick=()=>doCopy('general');
+
+/* tabs */
+document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{ document.querySelectorAll('.tabs button').forEach(x=>x.classList.toggle('active',x===b)); ['factory','general','calc','settings','cost','quote'].forEach(t=>$('tab-'+t).hidden = t!==b.dataset.tab); if(b.dataset.tab==='cost') renderCost(); if(b.dataset.tab==='quote') renderQuote(); try{localStorage.setItem('bl_tab',b.dataset.tab);}catch(e){} });
+
+/* settings form */
+function renderSettings(){
+  const c=$('settingsForm'); c.innerHTML='';
+  SETTINGS_META.forEach(([title,items])=>{
+    const h=document.createElement('h3'); h.textContent=title; c.appendChild(h);
+    const g=document.createElement('div'); g.className='settings-grid';
+    items.forEach(([k,label,type])=>{ const l=document.createElement('label'); if(type==='ta') l.style.gridColumn='1 / -1'; l.innerHTML=`${esc(label||('ברירת מחדל: '+DEFAULT_SETTINGS[k]))}${type==='ta'?`<textarea style="min-height:140px">${esc(S[k])}</textarea>`:`<input ${type==='n'?'type="number" step="0.1"':'type="text"'} value="${esc(S[k])}">`}`; const inp=l.querySelector('input,textarea'); inp.addEventListener('input',()=>{ S[k]= type==='n'? Number(inp.value): inp.value; saveSettings(); recalc(); if(k==='glassTypes') renderForm(); }); g.appendChild(l); });
+    c.appendChild(g);
+  });
+}
+$('settingsReset').onclick=()=>{ S={...DEFAULT_SETTINGS}; saveSettings(); renderSettings(); renderForm(); recalc(); };
+
+/* saved orders (localStorage) */
+let ORDERS=null;
+function loadSaved(){ if(ORDERS) return ORDERS; try{ ORDERS=JSON.parse(localStorage.getItem('bl_orders')||'[]'); }catch(e){ ORDERS=[]; } return ORDERS; }
+function saveOrdersLocal(list){ ORDERS=list; try{ localStorage.setItem('bl_orders',JSON.stringify(list)); }catch(e){} }
+const orderKey=o=>(`${o.no||''}|${o.customer||''}|${o.room||''}`.replace(/[^\w\u0590-\u05FF|.\-]/g,'_')||'order')+'';
+function renderSaved(){
+  const list=loadSaved(); const c=$('savedList'); c.innerHTML= list.length? '' : '<div class="hint">אין הזמנות שמורות.</div>';
+  list.forEach((o,i)=>{ const d=document.createElement('div'); d.className='saved-item'; d.innerHTML=`<span>${esc(o.no||'—')} · ${esc(o.customer||'')} ${esc(o.room||'')} <span class="hint">${esc(o.date||'')}</span></span><span class="row"><button class="small">פתח</button><button class="small ghost">✕</button></span>`;
+    d.querySelectorAll('button')[0].onclick=()=>{ O=JSON.parse(JSON.stringify(o)); O.sides.forEach(s=>s.els.forEach(e=>{ e.id=uid++; })); renderForm(); recalc(); };
+    d.querySelectorAll('button')[1].onclick=()=>{ const gone=list.splice(i,1)[0]; saveOrdersLocal(list); renderSaved(); cloudDeleteOrder(gone); };
+    c.appendChild(d); });
+}
+$('btnSave').onclick=()=>{ const list=loadSaved(); const idx=list.findIndex(o=>o.no&&o.no===O.no&&o.customer===O.customer&&o.room===O.room); const copy=JSON.parse(JSON.stringify(Object.assign({},O,{_quoteItem:undefined}))); copy.savedAt=new Date().toISOString(); if(idx>=0) list[idx]=copy; else list.unshift(copy); saveOrdersLocal(list); renderSaved(); cloudSaveOrder(copy); };
+$('btnExportJson').onclick=async()=>{ const name=`הזמנה ${O.no||''} ${O.customer||''}.json`.replace(/\s+/g,' ').trim(); const data=JSON.stringify(O,null,1); if(downloads){ try{ await downloads.save({filename:name,data}); }catch(e){} } else { try{ await navigator.clipboard.writeText(data); }catch(e){} } };
+let MEAS=null; /* the last measurement loaded from an installer link (may hold several showers / options) */
+function measureToOrders(m){ /* v1 single order → items; v2 → one order per shower option */
+  if(!m.items){ const o=m; m=Object.assign({},o,{address:o.room||'',items:[{room:'',opts:[{opt:'א',model:o.model,glass:o.glass,thick:o.thick,height:o.height,finish:o.finish,sides:o.sides}]}]}); }
+  const list=[]; m.items.forEach((it,i)=>it.opts.forEach((op,j)=>{ const label=(m.items.length>1?(it.room||`מקלחון ${i+1}`):(it.room||'מקלחון'))+(it.opts.length>1?` – אופציה ${op.opt||(j===0?'א':'ב')}`:'');
+    const o=Object.assign(newOrder(),{no:m.no||'',date:(m.measuredAt||'').slice(0,10)||m.date||new Date().toISOString().slice(0,10),customer:m.customer||'',customerPhone:m.customerPhone||'',room:[it.room,m.address].filter(Boolean).join(' · '),store:m.store||'',model:op.model||'',glass:op.glass||'שקופה',thick:String(op.thick||'8'),height:Number(op.height)||S.defaultHeight,finish:op.finish||'',sides:JSON.parse(JSON.stringify(op.sides||[])),measuredBy:m.measuredBy||'',measuredAt:m.measuredAt||'',measuredNote:m.note||'',optLabel:label});
+    o.sides.forEach(sd=>sd.els.forEach(el=>{ Object.assign(el, Object.assign(newEl(el.type,el.w), el)); el.id=uid++; })); op.sides=o.sides; op.height=o.height; op.thick=o.thick; list.push({label,o}); })); return {m,list}; }
+function pickMeasureOrder(k){ if(!MEAS||!MEAS.list[k]) return; O=JSON.parse(JSON.stringify(MEAS.list[k].o)); O.sides.forEach(sd=>sd.els.forEach(el=>{ el.id=uid++; })); renderForm(); recalc(); renderMeasurePicker(k); }
+function renderMeasurePicker(sel){ const msg=$('measureMsg'); if(!MEAS) return; const m=MEAS.m; let h=`<div>נטענה מדידה של <b>${esc(m.customer||'לקוח ללא שם')}</b>${m.measuredBy?' (מדד: '+esc(m.measuredBy)+')':''}${m.measuredAt?' · '+new Date(m.measuredAt).toLocaleString('he-IL'):''}${m.sigCustomer?' · ✔ חתום על ידי הלקוח':''}${m.note?'<br>הערת המתקין: '+esc(m.note):''}</div>`;
+  if(MEAS.list.length>1){ MEAS.loaded=MEAS.loaded||new Set(); MEAS.loaded.add(sel); h+=`<div class="warns show" style="margin-top:8px;font-weight:700">⚠ במדידה הזו ${MEAS.list.length} מקלחונים / אופציות – כל אחד הוא הזמנה נפרדת. טען, בדוק ושמור כל אחד בנפרד:</div><div class="row" style="margin-top:6px">${MEAS.list.map((x,k)=>`<button class="${k===sel?'primary':''}" data-pick="${k}">${MEAS.loaded.has(k)?'✔ ':''}${esc(x.label)}</button>`).join('')}</div>`; }
+  msg.innerHTML=h; msg.querySelectorAll('[data-pick]').forEach(b=>b.onclick=()=>pickMeasureOrder(Number(b.dataset.pick))); }
+async function loadMeasure(code){ const msg=$('measureMsg'); try{ const o=await decodeMeasure(code); if(!o||(!o.sides&&!o.items)) throw new Error('אין מדידה בקישור');
+    MEAS=measureToOrders(o); pickMeasureOrder(0); return true; }
+  catch(e){ msg.textContent='לא הצלחתי לקרוא את הקישור: '+(e&&e.message||e); return false; } }
+$('btnMeasureLoad').onclick=()=>{ const code=measureFromText($('measureLink').value); if(!code){ $('measureMsg').textContent='לא נמצא קישור מדידה בטקסט.'; return; } loadMeasure(code).then(ok=>{ if(ok) $('measureLink').value=''; }); };
+$('measureLink').addEventListener('paste',()=>setTimeout(()=>$('btnMeasureLoad').click(),50));
+(async()=>{ try{ const m=new URLSearchParams(location.hash.slice(1)).get('m'); if(m){ await loadMeasure(m); history.replaceState(null,'',location.pathname+location.search); } }catch(e){} })();
+$('importJson').addEventListener('change',e=>{ const f=e.target.files[0]; if(!f) return; const r=new FileReader(); r.onload=()=>{ try{ const o=JSON.parse(r.result); if(o&&o.sides){ O=o; O.sides.forEach(s=>s.els.forEach(el=>el.id=uid++)); renderForm(); recalc(); } }catch(err){} }; r.readAsText(f); e.target.value=''; });
+
+
+/* ---------------- recognition of measurement-form photos ---------------- */
+let sampleFn=null, sampleImgs=false, recCtl=null, recFile=null;
+(async()=>{ if(STANDALONE){ sampleFn='api'; sampleImgs=true; if(!S.apiKey){ $('recStatus').textContent='לזיהוי מתמונה הזן מפתח API בטאב "הגדרות וחוקים" (זיהוי תמונה).'; } return; }
+  try{ sampleFn = window.claude ? await window.claude.use('sample') : null; if(sampleFn){ const lim=await sampleFn.limits().catch(()=>null); sampleImgs=!!(lim&&lim.images); if(lim&&lim.images&&lim.images.mediaTypes) $('imgFile').accept=lim.images.mediaTypes.join(','); } }catch(e){ sampleFn=null; }
+  if(!sampleFn||!sampleImgs){ $('btnRecognize').disabled=true; $('recStatus').textContent='זיהוי אוטומטי מתמונה זמין רק כשהדף פתוח בתוך Claude.'; } })();
+async function fileToJpegBase64(file,max=1800){ const img=new Image(); const url=URL.createObjectURL(file); await new Promise((r,j)=>{img.onload=r;img.onerror=j;img.src=url;}); const k=Math.min(1,max/Math.max(img.width,img.height)); const c=document.createElement('canvas'); c.width=Math.round(img.width*k); c.height=Math.round(img.height*k); c.getContext('2d').drawImage(img,0,0,c.width,c.height); URL.revokeObjectURL(url); return c.toDataURL('image/jpeg',0.9).split(',')[1]; }
+async function apiRecognize(prompt,file,signal){
+  if(!S.apiKey) throw {code:'no_key'};
+  const b64=await fileToJpegBase64(file);
+  const res=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',signal,headers:{'content-type':'application/json','x-api-key':S.apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
+    body:JSON.stringify({model:S.apiModel||'claude-sonnet-4-5',max_tokens:4000,messages:[{role:'user',content:[{type:'image',source:{type:'base64',media_type:'image/jpeg',data:b64}},{type:'text',text:prompt}]}]})});
+  if(!res.ok){ const t=await res.text(); throw {code:'http_'+res.status,message:t.slice(0,300)}; }
+  const j=await res.json(); const text=(j.content||[]).filter(c=>c.type==='text').map(c=>c.text).join('\n');
+  const m=text.match(/```(?:json)?\s*([\s\S]*?)```/); const body=m?m[1]:text; const a=body.indexOf('{'), b=body.lastIndexOf('}');
+  try{ return JSON.parse(body.slice(a,b+1)); }catch(e){ throw {code:'invalid_json',text}; }
+}
+$('imgFile').addEventListener('change',e=>{ recFile=e.target.files[0]||null; const im=$('imgPreview'); if(recFile){ im.src=URL.createObjectURL(recFile); im.hidden=false; } else im.hidden=true; $('recResult').innerHTML=''; });
+const REC_PROMPT = `אתה קורא צילום של "טופס מדידה – bariline" למקלחון זכוכית שמילא מתקין בכתב יד. המטרה: לחלץ את התצורה והמידות במדויק כדי לייצר מהן שרטוט לייצור זכוכית. עבוד בשני שלבים והחזר JSON בלבד.
+
+שלב 1 – תמלול: עבור על כל מה שכתוב בכתב יד בטופס (שדות טקסט וכל מספר/מילה בציורים) ורשום כל פריט ב-"transcript" עם מיקומו ("ליד הציור השמאלי, מתחת לחלק הימני: 70"). קרא ספרות בזהירות (1/7, 5/6, 3/8, 4/9, נקודה עשרונית, ".5"). מספרים בטופס הם ס"מ.
+
+שלב 2 – פירוש לפי כללי הטופס:
+- שדות למעלה: תאריך, שם החנות, שם הלקוח, כתובת, טלפון, "דגם המקלחון", "זכוכית" (לרוב עובי + סוג: "8 מ"מ שקוף", "גלינה", "פסים", "אקסטרה קליר") וגימור פרזול ("ניקל מבריק", "זהב מוברש", "שחור").
+- באזור הריק מצוירים מקלחון אחד או יותר. אם יש כמה ציורים (לפעמים עם שם חדר ליד כל אחד, למשל "חדר הורים", "חדר אלמוג", "חדר לירוי") – כל ציור הוא מקלחון נפרד ברשימת showers.
+- ציור של מלבן שטוח אחד = "front" (צד אחד בין שני קירות). ציור בפרספקטיבה של שני משטחים שנפגשים בפינה (כמו ספר פתוח) = "corner" (שני צדדים). המשטח השמאלי בציור הוא הצד השמאלי כפי שרואים את המקלחון מבחוץ, והוא sides[0]; הימני הוא sides[1].
+- בתוך כל צד יש קווים אנכיים שמחלקים לחלקים. ליד/מתחת לכל חלק כתוב סוג: "קבוע" (fixed), "דלת" (door), "הרמוניקה" (harm), לפעמים בקיצור. עיגול/נקודה = ידית (מסמן דלת). מספר מתחת לחלק = רוחב החלק. המספר הגדול מתחת לצד כולו = total (הרוחב הכולל של הצד). total הוא הנתון האמין ביותר: אם כתוב רק total ורוחב הדלת, חשב את רוחב הקבוע = total − דלת וציין ב-uncertainties שחושב. אם סכום החלקים ≠ total, ציין.
+- שני מספרים לאותו צד, אחד למטה ואחד למעלה (למשל 170 ו-169.5) = סטייה בקיר: width = המידה למטה, widthTop = המידה למעלה, על הדלת (אלא אם ברור אחרת).
+- מספר בסביבות 180–210 ליד קו אנכי = גובה המקלחון (height). אם לא כתוב – null.
+- "מדרגה"/חיתוך: בקבוע שיושב על מדרגה מצוירת פינה חתוכה עם שתי מידות – רוחב קטן (למשל 5.4) וגובה (למשל 119.8). החזר stepW ו-stepH על אותו קבוע. רוחב הקבוע במקרה כזה = המידה מתחת לקבוע (ללא המדרגה).
+- אל תמציא חלקים שלא מצוירים. אם משהו לא ניתן לקריאה החזר את הקריאה הסבירה ביותר וציין ב-uncertainties מה לא ודאי ומדוע.
+
+דוגמה לפירוש: ציור פרספקטיבה, משטח שמאלי מחולק לשניים עם "דלת 50" ו"דלת 50" ו-100 מתחת, משטח ימני "קבוע" ו-120 מתחת → {"kind":"corner","sides":[{"total":100,"elements":[{"type":"door","width":50},{"type":"door","width":50}]},{"total":120,"elements":[{"type":"fixed","width":120}]}]}.
+דוגמה: מלבן שטוח, חלק שמאלי "קבוע", חלק ימני "דלת 70" עם עיגול, מתחת 125.5 → {"kind":"front","sides":[{"total":125.5,"elements":[{"type":"fixed","width":55.5},{"type":"door","width":70}]}]} + uncertainties: "רוחב הקבוע חושב 125.5−70".
+
+החזר אך ורק JSON במבנה הזה, ללא טקסט לפניו או אחריו:
+{"transcript":["..."],"date":"","store":"","customer":"","address":"","phone":"","model":"","glass":"","thickness":8,"finish":"","notes":"",
+ "showers":[{"room":"","kind":"corner|front","height":null,"sides":[{"total":null,"elements":[{"type":"fixed|door|harm","width":0,"widthTop":null,"stepW":null,"stepH":null}]}]}],
+ "uncertainties":["..."]}`;
+$('btnStopRec').onclick=()=>{ if(recCtl) recCtl.abort(); };
+$('btnRecognize').onclick=async()=>{
+  if(!recFile){ $('recStatus').textContent='בחר קודם תמונה של הטופס.'; return; }
+  if(!sampleFn){ return; }
+  recCtl=new AbortController(); $('btnRecognize').disabled=true; $('btnStopRec').hidden=false; $('recResult').innerHTML='';
+  $('recStatus').textContent='קורא את הטופס… (10–60 שניות)';
+  try{
+    const hint=$('recHint').value.trim(); const prompt = hint ? REC_PROMPT+`\n\nרמזים מהמשתמש (עדיפות עליונה): ${hint}` : REC_PROMPT;
+    const t0=Date.now(); const tick=setInterval(()=>{ if(!$('recStatus').dataset.streaming) $('recStatus').textContent=`קורא את הטופס… ${Math.round((Date.now()-t0)/1000)} שנ'`; },1000);
+    let data; try{ data= STANDALONE ? await apiRecognize(prompt,recFile,recCtl.signal) : await sampleFn.json(prompt,{images:recFile,modelTier:'complex',signal:recCtl.signal,cache:false,onText:()=>{ $('recStatus').dataset.streaming='1'; $('recStatus').textContent='מקבל תשובה…'; }}); } finally { clearInterval(tick); delete $('recStatus').dataset.streaming; }
+    renderRecognition(data);
+    $('recStatus').textContent='הזיהוי הסתיים – בדוק את התוצאה מול הצילום.';
+  }catch(e){
+    if(e&&e.name==='AbortError') e={code:'cancelled'};
+    const m={no_key:'חסר מפתח API – הזן אותו בהגדרות.',http_401:'מפתח ה-API לא תקין.',http_400:'הבקשה נדחתה – בדוק את שם המודל בהגדרות.',http_429:'חריגה ממכסת השימוש – נסה שוב בעוד רגע.',not_granted:'לא אושר שימוש ב-Claude מהדף הזה.',cancelled:'הזיהוי הופסק.',rate_limited:'יותר מדי בקשות – נסה שוב בעוד רגע.',image_rejected:'הקובץ לא התקבל – נסה תמונה אחרת (JPG/PNG).',invalid_json:'התשובה לא נקראה כראוי – נסה שוב.',refused:'לא ניתן היה לעבד את התמונה הזו.'};
+    $('recStatus').textContent=m[e&&e.code]||('הזיהוי נכשל: '+(e&&e.message||''));
+  } finally { $('btnRecognize').disabled=false; $('btnStopRec').hidden=true; recCtl=null; }
+};
+function renderRecognition(d){
+  const c=$('recResult'); c.innerHTML='';
+  if(!d||typeof d!=='object'){ c.textContent='לא זוהו נתונים.'; return; }
+  const showers=Array.isArray(d.showers)?d.showers:[];
+  const head=document.createElement('div'); head.className='rec';
+  head.innerHTML=`<b>פרטים שזוהו</b><div class="hint">${esc([d.customer&&'לקוח: '+d.customer, d.store&&'חנות: '+d.store, d.phone&&'טלפון: '+d.phone, d.date&&'תאריך: '+d.date, d.model&&'דגם: '+d.model, d.glass&&'זכוכית: '+d.glass, d.thickness&&'עובי: '+d.thickness, d.finish&&'גימור: '+d.finish].filter(Boolean).join(' · ')||'—')}</div>`;
+  if(Array.isArray(d.uncertainties)&&d.uncertainties.length) head.innerHTML+=`<div class="unc">לבדיקה: ${esc(d.uncertainties.join(' | '))}</div>`;
+  if(Array.isArray(d.transcript)&&d.transcript.length) head.innerHTML+=`<details style="margin-top:4px"><summary class="hint" style="cursor:pointer">מה נקרא מהטופס (${d.transcript.length})</summary><div class="hint">${esc(d.transcript.join(' · '))}</div></details>`;
+  c.appendChild(head);
+  if(!showers.length){ c.insertAdjacentHTML('beforeend','<div class="hint">לא זוהה ציור של מקלחון בתמונה.</div>'); return; }
+  showers.forEach((sh,i)=>{
+    const sides=Array.isArray(sh.sides)?sh.sides:[];
+    const desc=sides.map(sd=>(Array.isArray(sd.elements)?sd.elements:[]).map(el=>`${({fixed:'קבוע',door:'דלת',harm:'הרמוניקה'})[el.type]||el.type} ${el.width??'?'}${el.widthTop?'/'+el.widthTop:''}${el.stepW?' (מדרגה '+el.stepW+'×'+el.stepH+')':''}`).join(' + ')+(sd.total?` = ${sd.total}`:'')).join('  ‖  ');
+    const div=document.createElement('div'); div.className='rec';
+    div.innerHTML=`<b>מקלחון ${i+1}${sh.room?' – '+esc(sh.room):''} (${sh.kind==='corner'?'פינתי':'חזית'}${sh.height?', גובה '+sh.height:''})</b><div class="hint">${esc(desc||'—')}</div><div class="row" style="margin-top:6px"><button class="small primary">טען לטופס</button></div>`;
+    div.querySelector('button').onclick=()=>applyRecognition(d,sh);
+    c.appendChild(div);
+  });
+}
+function applyRecognition(d,sh){
+  const n=newOrder();
+  const dt=String(d.date||'').trim(); const m=dt.match(/(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{2,4})/); if(m){ let y=m[3].length===2?'20'+m[3]:m[3]; n.date=`${y}-${m[2].padStart(2,'0')}-${m[1].padStart(2,'0')}`; }
+  n.customer=String(d.customer||''); n.store=String(d.store||''); n.model=String(d.model||sh.model||''); n.room=String(sh.room||'');
+  if(d.glass) n.glass=String(d.glass); if(d.thickness) n.thick=String(d.thickness); n.finish=String(d.finish||''); if(d.phone) n.note=''; 
+  if(sh.height && Number(sh.height)>0) n.height=Number(sh.height);
+  n.sides=(Array.isArray(sh.sides)?sh.sides:[]).map(sd=>({els:(Array.isArray(sd.elements)?sd.elements:[]).map(el=>{ const t=['fixed','door','harm'].includes(el.type)?el.type:'fixed'; const e=newEl(t,Number(el.width)||0); if(el.widthTop!=null&&el.widthTop!==''&&Number(el.widthTop)) e.dev=r1(Number(el.widthTop)-Number(el.width)); if(el.stepW&&el.stepH){ e.stepW=Number(el.stepW); e.stepH=Number(el.stepH); } return e; })}));
+  O=n; renderForm(); recalc();
+  $('recStatus').textContent='הנתונים נטענו לטופס. עבור עליהם מול הצילום ותקן במידת הצורך.';
+  window.scrollTo({top:$('sides').getBoundingClientRect().top+window.scrollY-80,behavior:'smooth'});
+}
+
+
+
+/* ---------------- default price list (from Koral's sheets; editable in the cost tab) ---------------- */
+const DEFAULT_MODELS = {
+  'אוהיו':[151,173],'מישיגן':[321,345],'אוסטין':[300,346],'לוס אנג\'לס':[234,260],'סאן דייגו':[309,344],'בוסטון':[225,258],'דנוור':[121,146],'ממפיס':[205,232],'סאן פרנסיסקו':[200,230],'אינדיאנה':[235,264],'קנטקי':[151,173],'מרילנד':[160,172],'קליבלנד':[76,87],'בולטימור':[205,232],'טנסי':[121,146],'קרוליינה':[321,345],
+  'אילינוי':[200,230],'מיזורי':[225,258],'טולדו':[300,346],'סיאטל':[235,260],'מילווקי':[309,344],'אוקלהומה':[151,173],'לונג ביץ\'':[225,258],'ארקנסו':[300,346],'יוטה':[321,345],'באפלו':[121,146],'שיקגו':[150,173],'נברסקה':[160,172],'טוסון':[125,87]
+};
+const DEFAULT_PRICES = {
+  'glass|שקופה|6':160,'glass|אסיד|6':185,'glass|פסים|6':230,'glass|גרניט|6':185,'glass|שקופה|8':190,'glass|פסים|8':260,'glass|גרניט|8':250,'glass|פיפיטה|8':250,'glass|אסיד|8':250,
+  'glass|אקסטרה קליר|6':230,'glass|אקסטרה קליר|8':250,'glass|אנטי סאן אפור|6':230,'glass|אסיד אקסטרה קליר|6':300,'glass|אסיד אקסטרה קליר|8':350,'glass|גלינה|8':350,'glass|גלינה אקסטרה|8':420,'glass|ברונזה חום|8':280,'glass|גלינה פרל אקסטרה קליר|8':500,
+  // per-item hardware, chrome/nickel, ₪ landed (invoice USD × 3.54) – used only when the model is not in the model table
+  'proc|notch':0,'proc|hole':0,'proc|step':0,'proc|dev':0,'proc|etch':0,
+  'hw|ציר זכוכית קיר':25.2,'hw|ציר זכוכית זכוכית':42,'hw|ציר פינה':45,'hw|ידית':8.85,'hw|ידית מגבת':24,'hw|חיבור זווית':11,'hw|מוט תמיכה':17,
+  'hwg|ציר זכוכית קיר':30,'hwg|ציר זכוכית זכוכית':47,'hwg|ציר פינה':49,'hwg|ידית':13,'hwg|ידית מגבת':38,'hwg|חיבור זווית':13,'hwg|מוט תמיכה':27
+};
+Object.entries(DEFAULT_MODELS).forEach(([m,[a,b]])=>{ DEFAULT_PRICES['model|'+m+'|std']=a; DEFAULT_PRICES['model|'+m+'|gold']=b; });
+// תצורות דגמים: צדדים מופרדים ב-"/", פריטים ב-"+", בכל צד מהקיר לכיוון הפינה (בחזית: משמאל לימין)
+const DEFAULT_TEMPLATES = {
+  // פינתי (שני צדדים, כל צד מהקיר לפינה)
+  'אוהיו':'דלת / דלת', 'אוסטין':'קבוע+דלת / קבוע+דלת', 'מישיגן':'הרמוניקה / הרמוניקה', 'לוס אנג\'לס':'דלת / הרמוניקה', 'סאן דייגו':'קבוע+דלת / הרמוניקה',
+  'בוסטון':'קבוע+דלת / דלת', 'דנוור':'קבוע / דלת', 'ממפיס':'קבוע / הרמוניקה', 'סאן פרנסיסקו':'קבוע / קבוע+דלת', 'אינדיאנה':'קבוע / דלת+דלת',
+  // חזית (צד אחד, משמאל לימין)
+  'קנטקי':'דלת+דלת', 'מרילנד':'הרמוניקה', 'קליבלנד':'דלת', 'בולטימור':'קבוע+הרמוניקה', 'טנסי':'קבוע+דלת', 'קרוליינה':'הרמוניקה+הרמוניקה',
+  'אילינוי':'קבוע+דלת+קבוע', 'מיזורי':'קבוע+דלת+דלת', 'טולדו':'קבוע+דלת+דלת+קבוע', 'סיאטל':'הרמוניקה+דלת', 'מילווקי':'קבוע+דלת+הרמוניקה',
+  // אמבטיון
+  'אוקלהומה':'דלת+דלת', 'לונג ביץ\'':'קבוע+דלת+דלת', 'ארקנסו':'קבוע+דלת+דלת+קבוע', 'יוטה':'הרמוניקה+הרמוניקה', 'באפלו':'קבוע+דלת', 'שיקגו':'קבוע+דלת', 'נברסקה':'הרמוניקה', 'טוסון':'דלת'
+};
+const MODEL_KIND = { 'אוקלהומה':'אמבטיון','לונג ביץ\'':'אמבטיון','ארקנסו':'אמבטיון','יוטה':'אמבטיון','באפלו':'אמבטיון','שיקגו':'אמבטיון כנף','נברסקה':'אמבטיון כנף','טוסון':'אמבטיון כנף' };
+Object.entries(DEFAULT_TEMPLATES).forEach(([m,t])=>{ DEFAULT_PRICES['tpl|'+m]=t; });
+function parseTemplate(str){ if(!str||typeof str!=='string') return null; const map={'קבוע':'fixed','דלת':'door','הרמוניקה':'harm','הרמ':'harm'};
+  const sides=str.split('/').map(x=>x.trim()).filter(Boolean).map(side=>side.split('+').map(x=>x.trim()).map(x=>{ const k=Object.keys(map).find(w=>x.startsWith(w)); return k?map[k]:null; }).filter(Boolean));
+  return sides.length&&sides.every(sd=>sd.length)? sides : null; }
+function templateFor(modelName){ const m=normModel(modelName); if(!m) return null; const keys=Object.keys(P).filter(k=>k.startsWith('tpl|')).map(k=>k.slice(4)); const hit=keys.find(n=>normModel(n)===m)||keys.find(n=>m.includes(normModel(n))||normModel(n).includes(m)); return hit? {name:hit, sides:parseTemplate(P['tpl|'+hit])} : null; }
+function applyModelTemplate(){ const t=templateFor(O.model); if(!t||!t.sides) return false;
+  // right side template is given wall→corner; internally the last side is stored left→right, so reverse it
+  O.sides=t.sides.map((sd,si)=>{ const els=sd.map(ty=>newEl(ty,0)); return {els:(t.sides.length>=2&&si===t.sides.length-1)? els.reverse(): els}; });
+  if(MODEL_KIND[t.name] && (!O.height || Number(O.height)===Number(S.defaultHeight))){ O.height=Number(S.bathHeight)||140; $('f_height').value=O.height; }
+  renderSides(); recalc(); const first=document.querySelector('#sides [data-k="w"]'); if(first) first.focus(); return true; }
+function modelFieldChanged(){ const t=templateFor(O.model); const btn=$('applyModel'), hint=$('modelHint');
+  if(!t||!t.sides){ btn.hidden=true; hint.textContent= O.model? 'אין תצורה שמורה לדגם הזה – אפשר להוסיף בטבלת הדגמים (טאב עלויות).':''; return; }
+  const empty = !O.sides.length || O.sides.every(sd=>sd.els.every(e=>!Number(e.w)));
+  const desc=P['tpl|'+t.name];
+  const kind = MODEL_KIND[t.name] ? ' ('+MODEL_KIND[t.name]+' – גובה סטנדרט '+(S.bathHeight||140)+', אפשר תוספת גובה)' : '';
+  if(empty){ applyModelTemplate(); btn.hidden=true; hint.textContent=`נבנה לפי דגם ${t.name}${kind}: ${desc} – הזן מידות.`; }
+  else { btn.hidden=false; hint.textContent=`דגם ${t.name}: ${desc}`; } }
+$('applyModel').onclick=()=>{ applyModelTemplate(); $('applyModel').hidden=true; };
+function renderModelList(){ const dl=$('modelList'); if(!dl) return; const names=[...new Set(Object.keys(P).filter(k=>k.startsWith('model|')||k.startsWith('tpl|')).map(k=>k.split('|')[1]))].sort((a,b)=>a.localeCompare(b,'he')); dl.innerHTML=names.map(n=>`<option value="${esc(n)}">`).join(''); }
+const normModel = m=>String(m||'').trim().replace(/\s+/g,' ').replace(/['’׳]/g,"'");
+function modelKey(){ const m=normModel(O.model); if(!m) return null; const names=Object.keys(P).filter(k=>k.startsWith('model|')).map(k=>k.split('|')[1]); const hit=names.find(n=>normModel(n)===m)||names.find(n=>m.includes(normModel(n))||normModel(n).includes(m)); return hit||null; }
+function finishGroup(){ if(O.finishGroup==='std'||O.finishGroup==='gold') return O.finishGroup; return /זהב|גרפיט|ברונזה|שחור|נחושת|gold|graphite|black/i.test(O.finish||'') ? 'gold':'std'; }
+
+/* ---------------- private costing (localStorage only) ---------------- */
+const PROC_ITEMS=[['notch','פינוי לציר'],['hole','קדח'],['step','חיתוך מדרגה'],['dev','חיתוך בסטייה'],['etch','צריבה (לזכוכית)']];
+function loadPrices(){ try{ return JSON.parse(localStorage.getItem('bl_prices')||'{}'); }catch(e){ return {}; } }
+let P=loadPrices();
+[['וונהיו','אוהיו'],['קולגייט','בולטימור']].forEach(([a,b])=>{ ['std','gold'].forEach(g=>{ if(P['model|'+a+'|'+g]!=null){ if(P['model|'+b+'|'+g]==null) P['model|'+b+'|'+g]=P['model|'+a+'|'+g]; delete P['model|'+a+'|'+g]; } }); if(P['tpl|'+a]){ delete P['tpl|'+a]; } });
+Object.entries(DEFAULT_PRICES).forEach(([k,v])=>{ if(P[k]==null) P[k]=v; });
+function savePricesLocal(){ try{ localStorage.setItem('bl_prices',JSON.stringify(P)); }catch(e){} }
+let priceTimer=null; function savePrices(){ savePricesLocal(); clearTimeout(priceTimer); priceTimer=setTimeout(()=>cloudSavePrices(),800); }
+const thickList=['6','8','10'];
+function hwNames(){ const base=['hwHingeWall','hwHingeGlass','hwHingeCorner','hwHarmHinge','hwHandle','hwMagnetCorner','hwMagnetStraight','hwBalloon','hwBottom','hwChair','hwSill','hwAngle','hwBar'].map(k=>S[k]); base.push('ידית מגבת'); Object.keys(CUR?CUR.hw:{}).forEach(k=>{ if(!base.includes(k)) base.push(k); }); return base; }
+function priceInput(key,label){ const l=document.createElement('label'); l.innerHTML=`${esc(label)}<input type="number" step="0.5" min="0" value="${P[key]??''}" placeholder="0">`; l.querySelector('input').addEventListener('input',e=>{ P[key]= e.target.value===''? undefined : Number(e.target.value); savePrices(); renderCostTable(); }); return l; }
+function renderPrices(){
+  const g=$('priceGlass'); g.innerHTML=''; S.glassTypes.split(',').map(x=>x.trim()).filter(Boolean).forEach(t=>thickList.forEach(th=>g.appendChild(priceInput(`glass|${t}|${th}`,`${t} ${th} מ"מ`))));
+  const pr=$('priceProc'); pr.innerHTML=''; PROC_ITEMS.forEach(([k,l])=>pr.appendChild(priceInput('proc|'+k,l)));
+  const h=$('priceHw'); h.innerHTML=''; hwNames().forEach(n=>h.appendChild(priceInput('hw|'+n,n)));
+  const hg=$('priceHwG'); hg.innerHTML=''; hwNames().forEach(n=>hg.appendChild(priceInput('hwg|'+n,n)));
+  const mt=$('priceModels'); const models=[...new Set(Object.keys(P).filter(k=>k.startsWith('model|')).map(k=>k.split('|')[1]))].sort((a,b)=>a.localeCompare(b,'he'));
+  let t='<tr><th>דגם</th><th>ניקל / כרום / מוברש</th><th>גרפיט / זהב</th><th>תצורה (מהקיר לפינה; צדדים עם /, פריטים עם +)</th><th></th></tr>';
+  models.forEach(m=>{ t+=`<tr><td>${esc(m)}</td><td><input type="number" step="1" data-mk="model|${esc(m)}|std" value="${P['model|'+m+'|std']??''}" style="width:90px"></td><td><input type="number" step="1" data-mk="model|${esc(m)}|gold" value="${P['model|'+m+'|gold']??''}" style="width:90px"></td><td><input type="text" data-tpl="${esc(m)}" value="${esc(P['tpl|'+m]||'')}" placeholder="למשל: קבוע+דלת / קבוע+דלת" style="width:230px"></td><td><button class="small ghost" data-mdel="${esc(m)}">✕</button></td></tr>`; });
+  mt.innerHTML=t;
+  mt.querySelectorAll('[data-mk]').forEach(i=>i.addEventListener('input',()=>{ P[i.dataset.mk]= i.value===''? undefined : Number(i.value); savePrices(); renderCostTable(); }));
+  mt.querySelectorAll('[data-tpl]').forEach(i=>i.addEventListener('input',()=>{ const v=i.value.trim(); if(v) P['tpl|'+i.dataset.tpl]=v; else delete P['tpl|'+i.dataset.tpl]; i.style.borderColor = (v&&!parseTemplate(v))?'#c0392b':''; savePrices(); renderModelList(); }));
+  mt.querySelectorAll('[data-mdel]').forEach(b=>b.onclick=()=>{ delete P['model|'+b.dataset.mdel+'|std']; delete P['model|'+b.dataset.mdel+'|gold']; delete P['tpl|'+b.dataset.mdel]; savePrices(); renderPrices(); renderCostTable(); renderModelList(); });
+}
+function costBreakdown(c){
+  c=c||CUR; const rows=[]; let total=0; let missing=false;
+  const price=(k)=>{ const v=P[k]; if(v==null){ missing=true; return null; } return v; };
+  const glassKey=`glass|${O.glass}|${O.thick}`; const gp=price(glassKey);
+  let gross=0; O.sides.forEach(sd=>sd.els.forEach(el=>{ let w=Number(el.w)||0; if(el.type==='fixed'&&el.stepW&&el.stepMeasured==='bottom') w+=Number(el.stepW); if(el.dev&&Number(el.dev)>0) w+=Number(el.dev); gross+=(w/100)*(c.H/100); }));
+  let area=0; c.glasses.forEach(g=>{ area+=(Math.max(g.wB,g.wT)/100)*(g.h/100); }); // נטו: מידות הזכוכיות בפועל אחרי הורדות (מלבן חוסם לכל זכוכית)
+  rows.push({name:`זכוכית ${O.glass} ${O.thick} מ"מ – נטו אחרי הורדות (ברוטו ${Math.round(gross*100)/100} מ"ר)`, qty:Math.round(area*100)/100, unit:'מ"ר', price:gp, sum: gp==null?null: area*gp});
+  let notches=0,holes=0,steps=0,devs=0; c.glasses.forEach(g=>{ const ny=(g.extraHinge?3:2); notches+=(g.notches||[]).length*ny; g.holes.forEach(h=>{ holes+= h.kind==='harm'?4 : h.kind==='wall'?2 : h.kind==='towel'?2 : 1; }); if(g.step) steps++; if(!g.step&&Math.abs(g.wT-g.wB)>0.005) devs++; });
+  const etch = (O.etchFrom!=null&&O.etchFrom!==''&&O.etchTo!=null&&O.etchTo!==''&&Number(O.etchTo)>Number(O.etchFrom)) ? c.glasses.length : 0;
+  [['notch',notches],['hole',holes],['step',steps],['dev',devs],['etch',etch]].forEach(([k,q])=>{ if(q>0){ const pp=price('proc|'+k); rows.push({name:PROC_ITEMS.find(x=>x[0]===k)[1], qty:q, unit:'יח׳', price:pp, sum:pp==null?null:q*pp}); } });
+  const mk=modelKey(); const fg=finishGroup();
+  if(mk && P['model|'+mk+'|'+fg]!=null){ const pp=P['model|'+mk+'|'+fg]; rows.push({name:`פרזול לדגם ${mk} (${fg==='gold'?'גרפיט/זהב':'ניקל/כרום'}) – צירים, גומיות ופרזול`, qty:1, unit:'סט', price:pp, sum:pp, model:true});
+    // תוספות שאינן חלק מסט הדגם
+    [['ידית מגבת',c.hw['ידית מגבת']||0]].forEach(([n,q])=>{ if(q>0){ const tp=price((fg==='gold'?'hwg|':'hw|')+n); const hp=P[(fg==='gold'?'hwg|':'hw|')+S.hwHandle]||0; const net=tp==null?null:Math.max(0,tp-hp); rows.push({name:n+' במקום ידית (תוספת לסט)'+(fg==='gold'?' (גרפיט/זהב)':''), qty:q, unit:'יח׳', price:net, sum:net==null?null:q*net}); } }); }
+  else Object.entries(c.hw).forEach(([n,q])=>{ const pp=price((fg==='gold'?'hwg|':'hw|')+n); rows.push({name:n+(fg==='gold'?' (גרפיט/זהב)':''), qty:q, unit:'יח׳', price:pp, sum:pp==null?null:q*pp}); });
+  rows.forEach(r=>{ if(r.sum!=null) total+=r.sum; });
+  return {rows,total,missing,area,gross};
+}
+function computeFor(order){ const saved=O; O=order; try{ const c=compute(); const b=costBreakdown(c); return {c,b}; } finally { O=saved; } }
+const nis=v=>'₪'+(Math.round(v*100)/100).toLocaleString('he-IL');
+function renderCostTable(){
+  if(!CUR) return; const b=costBreakdown();
+  let t='<tr><th>פריט</th><th>כמות</th><th>מחיר יח׳</th><th>סה"כ</th></tr>';
+  b.rows.forEach(r=>{ t+=`<tr><td>${esc(r.name)}</td><td>${r.qty} ${esc(r.unit)}</td><td class="${r.price==null?'miss':''}">${r.price==null?'חסר במחירון':nis(r.price)}</td><td>${r.sum==null?'—':nis(r.sum)}</td></tr>`; });
+  $('costTable').innerHTML=t;
+  const mk=modelKey(); $('finishGroup').value=O.finishGroup||'auto'; $('modelHit').textContent = mk ? `דגם בטבלה: ${mk}` : (O.model?`הדגם "${O.model}" לא בטבלת הדגמים – חושב לפי פריטים`:'לא הוזן דגם – חושב לפי פריטים');
+  $('costTotal').textContent=`סה"כ עלות: ${nis(b.total)}${b.missing?' (חלקי – יש מחירים חסרים)':''}`;
+}
+let COSTLOG=null;
+function loadCostLog(){ if(COSTLOG) return COSTLOG; try{ COSTLOG=JSON.parse(localStorage.getItem('bl_costlog')||'[]'); }catch(e){ COSTLOG=[]; } return COSTLOG; }
+function saveCostLog(l,month){ COSTLOG=l; try{ localStorage.setItem('bl_costlog',JSON.stringify(l)); }catch(e){} if(month) cloudSaveMonth(month); }
+function logCost(auto){
+  if(!CUR||!CUR.glasses.length) return;
+  const b=costBreakdown(); const log=loadCostLog();
+  const key=`${O.no}|${O.customer}|${O.room}`.trim();
+  const entry={ key, ts:new Date().toISOString(), month:new Date().toISOString().slice(0,7), no:O.no, customer:O.customer, room:O.room, store:O.store, model:O.model, glass:`${O.glass} ${O.thick}`, area:Math.round(b.area*100)/100, glassCost:Math.round((b.rows[0].sum||0)), hwCost:Math.round(b.rows.filter(r=>!PROC_ITEMS.some(x=>x[1]===r.name)&&r!==b.rows[0]).reduce((a,r)=>a+(r.sum||0),0)), procCost:Math.round(b.rows.filter(r=>PROC_ITEMS.some(x=>x[1]===r.name)).reduce((a,r)=>a+(r.sum||0),0)), total:Math.round(b.total), partial:b.missing, rows:b.rows };
+  const idx = key!=='||' ? log.findIndex(e=>e.key===key) : -1;
+  if(idx>=0){ entry.ts=log[idx].ts; entry.month=log[idx].month; log[idx]=entry; } else log.unshift(entry);
+  saveCostLog(log,entry.month); renderCostLog();
+  if(!auto){ $('costTotal').textContent+=' – נרשם לחודש.'; }
+  showWaReport(entry);
+}
+function waText(e){ const d=e.ts.slice(0,10).split('-').reverse().join('/'); return `בריליין – נרשם לחודש\nתאריך: ${d}\nהזמנה: ${e.no||'—'}\nלקוח: ${[e.customer,e.room].filter(Boolean).join(' ')||'—'}\nדגם: ${e.model||'—'}\nעלות: ${nis(e.total)}${e.partial?' (חלקי)':''}`; }
+function waLink(e){ let ph=String(S.reportPhone||'').replace(/[^\d]/g,''); if(!ph) return null; if(ph.startsWith('0')) ph='972'+ph.slice(1); return 'https://wa.me/'+ph+'?text='+encodeURIComponent(waText(e)); }
+function showWaReport(e){ const a=$('waReport'); const l=waLink(e); if(!l){ a.hidden=true; return; } a.href=l; a.hidden=false; a.title='פותח וואטסאפ עם ההודעה מוכנה – נשאר רק ללחוץ שלח';
+  ['msgFactory','msgGeneral'].forEach(id=>{ const m=$(id); if(!m) return; const old=m.querySelector('a.wa'); if(old) old.remove(); const b=document.createElement('a'); b.className='wa'; b.href=l; b.target='_blank'; b.rel='noopener'; b.textContent=' 📲 שלח דיווח בוואטסאפ'; b.style.marginInlineStart='8px'; m.appendChild(b); }); }
+function renderCostLog(){
+  const log=loadCostLog(); const sel=$('costMonth'); const months=[...new Set(log.map(e=>e.month))].sort().reverse(); const cur=new Date().toISOString().slice(0,7); if(!months.includes(cur)) months.unshift(cur);
+  const prev=sel.value; sel.innerHTML=months.map(m=>`<option value="${m}">${m.split('-').reverse().join('/')}</option>`).join(''); sel.value= months.includes(prev)?prev:months[0];
+  const m=sel.value; const rows=log.filter(e=>e.month===m);
+  let t='<tr><th>תאריך</th><th>הזמנה</th><th>לקוח</th><th>זכוכית (מ"ר)</th><th>עלות זכוכית</th><th>פרזול</th><th>עיבודים</th><th>סה"כ</th><th></th></tr>';
+  let tot=0; rows.forEach((e,i)=>{ tot+=e.total; t+=`<tr><td>${e.ts.slice(0,10).split('-').reverse().join('/')}</td><td>${esc(e.no||'—')}</td><td>${esc(e.customer||'')} ${esc(e.room||'')}</td><td>${e.area}</td><td>${nis(e.glassCost)}</td><td>${nis(e.hwCost)}</td><td>${nis(e.procCost)}</td><td class="${e.partial?'miss':''}">${nis(e.total)}${e.partial?' *':''}</td><td><button class="small ghost" data-del="${esc(e.key)}|${e.ts}">✕</button></td></tr>`; });
+  $('costLogTable').innerHTML=t; $('costMonthTotal').textContent=`${rows.length} הזמנות · סה"כ לחודש: ${nis(tot)}${rows.some(e=>e.partial)?'   (* = חושב עם מחירים חסרים)':''}`;
+  $('costLogTable').querySelectorAll('[data-del]').forEach(b=>b.onclick=()=>{ const l=loadCostLog(); const [k,ts]=[b.dataset.del.slice(0,b.dataset.del.lastIndexOf('|')),b.dataset.del.slice(b.dataset.del.lastIndexOf('|')+1)]; const i=l.findIndex(e=>e.key===k&&e.ts===ts); if(i>=0){ const m=l[i].month; l.splice(i,1); saveCostLog(l,m); renderCostLog(); } });
+}
+function renderCost(){ renderPrices(); renderCostTable(); renderCostLog(); }
+$('costLog').onclick=()=>logCost(false);
+$('addModel').onclick=()=>{ const n=normModel($('newModelName').value); if(!n) return; P['model|'+n+'|std']=P['model|'+n+'|std']??0; P['model|'+n+'|gold']=P['model|'+n+'|gold']??0; $('newModelName').value=''; savePrices(); renderPrices(); renderCostTable(); };
+$('finishGroup').addEventListener('change',e=>{ O.finishGroup=e.target.value; renderCostTable(); });
+$('costMonth').addEventListener('change',renderCostLog);
+$('costExport').onclick=async()=>{ const m=$('costMonth').value; const rows=loadCostLog().filter(e=>e.month===m); const head=['תאריך','מס הזמנה','לקוח','חדר','חנות','דגם','זכוכית','מ"ר','עלות זכוכית','פרזול','עיבודים','סה"כ','חלקי']; const csv='﻿'+[head.join(',')].concat(rows.map(e=>[e.ts.slice(0,10),e.no,e.customer,e.room,e.store,e.model,e.glass,e.area,e.glassCost,e.hwCost,e.procCost,e.total,e.partial?'כן':''].map(v=>'"'+String(v??'').replace(/"/g,'""')+'"').join(','))).join('\n'); const name=`עלויות ${m}.csv`; if(downloads){ try{ await downloads.save({filename:name,data:csv}); }catch(e){} } else { const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'})); a.download=name; document.body.appendChild(a); a.click(); a.remove(); } };
+$('priceExport').onclick=async()=>{ const data=JSON.stringify(P,null,1); if(downloads){ try{ await downloads.save({filename:'מחירון בריליין.json',data}); }catch(e){} } else { try{ await navigator.clipboard.writeText(data); }catch(e){} } };
+$('priceImport').addEventListener('change',e=>{ const f=e.target.files[0]; if(!f) return; const r=new FileReader(); r.onload=()=>{ try{ const o=JSON.parse(r.result); if(o&&typeof o==='object'){ P=o; savePrices(); renderCost(); } }catch(err){} }; r.readAsText(f); e.target.value=''; });
+
+
+
+/* ---------------- standalone: save everything to a folder on this computer ---------------- */
+const FS={handle:null,ok:false,name:''};
+function idbGet(k){ return new Promise(res=>{ try{ const r=indexedDB.open('bariline',1); r.onupgradeneeded=()=>r.result.createObjectStore('kv'); r.onsuccess=()=>{ const tx=r.result.transaction('kv','readonly'); const g=tx.objectStore('kv').get(k); g.onsuccess=()=>res(g.result); g.onerror=()=>res(null); }; r.onerror=()=>res(null); }catch(e){ res(null); } }); }
+function idbSet(k,v){ return new Promise(res=>{ try{ const r=indexedDB.open('bariline',1); r.onupgradeneeded=()=>r.result.createObjectStore('kv'); r.onsuccess=()=>{ const tx=r.result.transaction('kv','readwrite'); tx.objectStore('kv').put(v,k); tx.oncomplete=()=>res(true); tx.onerror=()=>res(false); }; r.onerror=()=>res(false); }catch(e){ res(false); } }); }
+async function fsWrite(name,obj){ const fh=await FS.handle.getFileHandle(name,{create:true}); const w=await fh.createWritable(); await w.write(JSON.stringify(obj,null,1)); await w.close(); }
+async function fsRead(name){ try{ const fh=await FS.handle.getFileHandle(name); const f=await fh.getFile(); return JSON.parse(await f.text()); }catch(e){ return null; } }
+let fsTimers={};
+function fileSaveAll(what){ if(!STANDALONE||!FS.ok) return; const jobs={ orders:()=>fsWrite('bariline-orders.json',{orders:loadSaved()}), costlog:()=>fsWrite('bariline-costlog.json',{entries:loadCostLog()}), prices:()=>fsWrite('bariline-prices.json',{p:P}), settings:()=>fsWrite('bariline-settings.json',{s:S}), quotes:()=>fsWrite('bariline-quotes.json',{quotes:loadQuotes()}) };
+  (what?[what]:Object.keys(jobs)).forEach(k=>{ clearTimeout(fsTimers[k]); fsTimers[k]=setTimeout(async()=>{ try{ await jobs[k](); FS.err=''; }catch(e){ FS.ok=false; FS.err='כתיבה לתיקייה נכשלה: '+(e&&e.message||''); setCloudStatus(); } },400); }); }
+async function fileLoadAll(){
+  const o=await fsRead('bariline-orders.json'); if(o&&Array.isArray(o.orders)){ const lo=loadSaved(); const keys=new Set(o.orders.map(orderKey)); saveOrdersLocal(o.orders.concat(lo.filter(x=>!keys.has(orderKey(x))))); }
+  const c=await fsRead('bariline-costlog.json'); if(c&&Array.isArray(c.entries)){ const lo=loadCostLog(); const seen=new Set(c.entries.map(e=>e.key+'|'+e.ts)); const merged=c.entries.concat(lo.filter(e=>!seen.has(e.key+'|'+e.ts))).sort((a,b)=>b.ts.localeCompare(a.ts)); COSTLOG=merged; try{ localStorage.setItem('bl_costlog',JSON.stringify(merged)); }catch(e){} }
+  const qs=await fsRead('bariline-quotes.json'); if(qs&&Array.isArray(qs.quotes)){ const lo=loadQuotes(); const nos=new Set(qs.quotes.map(q=>q.no)); saveQuotesLocal(qs.quotes.concat(lo.filter(q=>!nos.has(q.no)))); }
+  const pr=await fsRead('bariline-prices.json'); if(pr&&pr.p&&Object.keys(pr.p).length){ P=pr.p; savePricesLocal(); }
+  const st=await fsRead('bariline-settings.json'); if(st&&st.s){ S=Object.assign({},DEFAULT_SETTINGS,st.s); try{ localStorage.setItem('bl_settings',JSON.stringify(S)); }catch(e){} renderSettings(); }
+  renderSaved(); renderForm(); recalc(); renderCost();
+}
+async function fileConnect(pick){
+  if(!('showDirectoryPicker' in window)){ FS.err='הדפדפן הזה לא תומך בשמירה לתיקייה – השתמש ב-Chrome או Edge.'; setCloudStatus(); return; }
+  try{
+    let h = pick ? await window.showDirectoryPicker({mode:'readwrite'}) : await idbGet('dir');
+    if(!h){ setCloudStatus(); return; }
+    let perm=await h.queryPermission({mode:'readwrite'}); if(perm!=='granted' && pick) perm=await h.requestPermission({mode:'readwrite'});
+    if(perm!=='granted'){ FS.handle=h; FS.ok=false; FS.err='needperm'; setCloudStatus(); return; }
+    FS.handle=h; FS.name=h.name; await idbSet('dir',h); await fileLoadAll(); FS.ok=true; FS.err=''; fileSaveAll(); setCloudStatus();
+  }catch(e){ if(e&&e.name==='AbortError') return; FS.ok=false; FS.err=(e&&e.message)||'שגיאה'; setCloudStatus(); }
+}
+async function fileReconnect(){ const h=await idbGet('dir'); if(!h) return fileConnect(true); try{ const perm=await h.requestPermission({mode:'readwrite'}); if(perm==='granted'){ FS.handle=h; FS.name=h.name; await fileLoadAll(); FS.ok=true; FS.err=''; fileSaveAll(); } }catch(e){ FS.err=e&&e.message||''; } setCloudStatus(); }
+
+/* ---------------- private cloud storage (per signed-in user; not visible to anyone else) ---------------- */
+const CLOUD={db:null,uid:null,ok:false,err:''};
+function setCloudStatus(){
+  const pill=$('cloudPill'); if(!pill) return;
+  if(STANDALONE){
+    pill.style.cursor='pointer';
+    if(FS.ok){ pill.textContent='💾 נשמר בתיקייה: '+FS.name; pill.title='ההזמנות, הרישום החודשי, המחירון וההגדרות נשמרים כקבצים בתיקייה הזו במחשב שלך. לחץ להחלפת תיקייה.'; pill.style.background='#dff3e4'; pill.style.color='#1f6b34'; pill.onclick=()=>fileConnect(true); }
+    else if(FS.err==='needperm'){ pill.textContent='🔓 לחץ לחיבור מחדש לתיקייה'; pill.title='הדפדפן מבקש אישור מחדש לתיקיית השמירה'; pill.style.background='#fdf0e3'; pill.style.color='#b4540a'; pill.onclick=()=>fileReconnect(); }
+    else { pill.textContent='⚠ לחץ לבחירת תיקיית שמירה'; pill.title=FS.err||'בחר תיקייה במחשב (רצוי בתוך Google Drive / iCloud / OneDrive) – כל הנתונים יישמרו בה כקבצים.'; pill.style.background='#fdf0e3'; pill.style.color='#b4540a'; pill.onclick=()=>fileConnect(true); }
+    const h=$('costStorageHint'); if(h) h.textContent = FS.ok ? `אזור פרטי: העלויות לא מופיעות באף שרטוט. הרישום נשמר בקובץ bariline-costlog.json בתיקייה "${FS.name}".` : 'אזור פרטי. בחר תיקיית שמירה (הסמן בראש הדף) כדי שהרישום יישמר כקובץ במחשב ולא רק בדפדפן.';
+    return;
+  }
+  if(CLOUD.ok){ pill.textContent='☁ מסונכרן לחשבון שלך'; pill.title='ההזמנות, המחירון והרישום החודשי נשמרים בענן בחשבון ה-Claude שלך, פרטי לך בלבד, וזמינים מכל מחשב.'; pill.style.background='#dff3e4'; pill.style.color='#1f6b34'; }
+  else { pill.textContent='⚠ שמירה מקומית בלבד'; pill.title=CLOUD.err||'לא ניתן להתחבר לאחסון הפרטי – הנתונים נשמרים רק בדפדפן הזה. ייצא קובץ לגיבוי.'; pill.style.background='#fdf0e3'; pill.style.color='#b4540a'; }
+  const h=$('costStorageHint'); if(h) h.textContent = CLOUD.ok ? 'אזור פרטי: העלויות לא מופיעות באף שרטוט ולא נשלחות לאף אחד. הרישום נשמר בענן בחשבון שלך (פרטי לך בלבד) וזמין מכל מחשב.' : 'אזור פרטי. כרגע אין חיבור לאחסון בענן – הרישום נשמר רק בדפדפן הזה. ייצא CSV לגיבוי.';
+}
+const cRoot=()=>CLOUD.db.doc('data/users/'+CLOUD.uid+'/profile');
+async function cloudSavePrices(){ if(STANDALONE){ fileSaveAll('prices'); return; } if(!CLOUD.ok) return; try{ await CLOUD.db.doc('data/users/'+CLOUD.uid+'/prices').set({p:P,updatedAt:new Date().toISOString()}); }catch(e){ CLOUD.ok=false; CLOUD.err='שמירת המחירון בענן נכשלה: '+(e&&e.code||''); setCloudStatus(); } }
+async function cloudSaveMonth(month){ if(STANDALONE){ fileSaveAll('costlog'); return; } if(!CLOUD.ok) return; try{ const entries=loadCostLog().filter(e=>e.month===month).map(e=>({...e,rows:undefined})); await cRoot().collection('costlog').doc(month).set({month,entries,updatedAt:new Date().toISOString()}); }catch(e){ CLOUD.ok=false; CLOUD.err='שמירת הרישום בענן נכשלה: '+(e&&e.code||''); setCloudStatus(); } }
+async function cloudSaveOrder(o){ if(STANDALONE){ fileSaveAll('orders'); return; } if(!CLOUD.ok) return; try{ await cRoot().collection('orders').doc(orderKey(o)).set({o,updatedAt:new Date().toISOString()}); }catch(e){ CLOUD.ok=false; CLOUD.err='שמירת ההזמנה בענן נכשלה: '+(e&&e.code||''); setCloudStatus(); } }
+async function cloudDeleteOrder(o){ if(STANDALONE){ fileSaveAll('orders'); return; } if(!CLOUD.ok||!o) return; try{ await cRoot().collection('orders').doc(orderKey(o)).delete(); }catch(e){} }
+async function cloudInit(){
+  if(STANDALONE){ await fileConnect(false); return; }
+  try{
+    if(!window.claude||!window.claude.use) throw {code:'no_runtime'};
+    const [user,db]=await Promise.all([window.claude.use('user'),window.claude.use('db')]);
+    if(!user||!db) throw {code:'unavailable'};
+    const uid=await user.id(); if(!uid) throw {code:'no_user'};
+    CLOUD.db=db; CLOUD.uid=uid;
+    // prices: cloud wins; if cloud empty and local has prices, push local up
+    const ps=await db.doc('data/users/'+uid+'/prices').get();
+    if(ps.exists && ps.data().p && Object.keys(ps.data().p).length){ P=ps.data().p; savePricesLocal(); }
+    else if(Object.keys(P).length){ await db.doc('data/users/'+uid+'/prices').set({p:P,updatedAt:new Date().toISOString()}); }
+    // cost log: union of cloud and local (cloud wins on the same entry)
+    const ms=await cRoot().collection('costlog').get(); const cloud=[]; ms.docs.forEach(d=>((d.data()||{}).entries||[]).forEach(e=>cloud.push(e)));
+    const local=loadCostLog(); const seen=new Set(cloud.map(e=>e.key+'|'+e.ts)); const localOnly=local.filter(e=>!seen.has(e.key+'|'+e.ts));
+    const merged=cloud.concat(localOnly).sort((a,b)=>b.ts.localeCompare(a.ts)); COSTLOG=merged; try{ localStorage.setItem('bl_costlog',JSON.stringify(merged)); }catch(e){}
+    CLOUD.ok=true;
+    for(const m of new Set(localOnly.map(e=>e.month))) await cloudSaveMonth(m);
+    // saved orders: union
+    const os=await cRoot().collection('orders').get(); const cloudOrders=os.docs.map(d=>(d.data()||{}).o).filter(Boolean);
+    const lo=loadSaved(); const ck=new Set(cloudOrders.map(orderKey)); const lOnly=lo.filter(o=>!ck.has(orderKey(o)));
+    const allOrders=cloudOrders.concat(lOnly).sort((a,b)=>String(b.savedAt||'').localeCompare(String(a.savedAt||''))); saveOrdersLocal(allOrders);
+    for(const o of lOnly) await cloudSaveOrder(o);
+    const qs=await cRoot().collection('quotes').get(); const cq=qs.docs.map(d=>(d.data()||{}).q).filter(Boolean); const lq=loadQuotes(); const qn=new Set(cq.map(q=>q.no)); const lqOnly=lq.filter(q=>!qn.has(q.no)); saveQuotesLocal(cq.concat(lqOnly).sort((a,b)=>String(b.savedAt||'').localeCompare(String(a.savedAt||'')))); for(const q of lqOnly) await cloudSaveQuote(q);
+    renderSaved(); renderCost(); setCloudStatus();
+  }catch(e){ CLOUD.ok=false; CLOUD.err = (e&&e.code==='no_runtime')?'הדף פתוח מחוץ ל-Claude – אין חיבור לאחסון הפרטי.':'אין חיבור לאחסון הפרטי ('+(e&&e.code||'')+').'; setCloudStatus(); }
+}
+
+
+/* ---------------- customer quotes ---------------- */
+let QUOTES=null;
+function loadQuotes(){ if(QUOTES) return QUOTES; try{ QUOTES=JSON.parse(localStorage.getItem('bl_quotes')||'[]'); }catch(e){ QUOTES=[]; } return QUOTES; }
+function saveQuotesLocal(l){ QUOTES=l; try{ localStorage.setItem('bl_quotes',JSON.stringify(l)); }catch(e){} }
+function newQuote(){ const d=new Date(); const v=new Date(d.getTime()+ (Number(S.quoteValidDays)||14)*86400000); return { no:'', date:d.toISOString().slice(0,10), valid:v.toISOString().slice(0,10), name:'', phone:'', address:'', discount:0, terms:S.quoteTerms, items:[] }; }
+let Q=newQuote();
+const cloneOrder=o=>{ const c=JSON.parse(JSON.stringify(Object.assign({},o,{_quoteItem:undefined}))); delete c.hwText; return c; };
+function describeOrder(o){
+  const N=o.sides.length; const kind=N>=2?'פינתי':'חזית';
+  const sideTxt=o.sides.map(sd=>sd.els.map(e=>({fixed:'קבוע',door:'דלת',harm:'הרמוניקה'})[e.type]+' '+fmt(e.w)).join(' + ')).join(' / ');
+  return `${kind}${o.model?' דגם '+o.model:''}: ${sideTxt}, גובה ${fmt(o.height)} ס"מ`;
+}
+function openingText(o){
+  const {c}=computeFor(o); const parts=[];
+  o.sides.forEach(sd=>sd.els.forEach(el=>{ if(el.type==='fixed') return; const inf=c.info.get(el.id); if(!inf) return; parts.push(`${el.type==='harm'?'הרמוניקה':'דלת'} ${fmt(el.w)} – ציר ב${inf.hinge==='left'?'שמאל':'ימין'}, פתיחה החוצה ופנימה`); }));
+  return parts.join('; ')||'ללא דלת';
+}
+function installFor(o){ return Number(o.thick)>=8 ? Number(S.install8)||0 : Number(S.install6)||0; }
+function roundP(v){ const r=Number(S.roundTo)||0; return r>0? Math.round(v/r)*r : Math.round(v); }
+function quoteCostFor(order, glassOverride){
+  // עלות לצורך הצעת מחיר: זכוכית ברוטו (מידות המדידה × גובה) + פרזול (+ עיבודים). החישוב הפרטי (נטו) נשאר בטאב העלויות.
+  const saved=O; O=Object.assign({},order,glassOverride?{glass:glassOverride}:{}); try{
+    const c=compute(); const b=costBreakdown(c);
+    const gp=P[`glass|${O.glass}|${O.thick}`]; const glassCost = gp==null? null : b.gross*gp;
+    const other=b.rows.slice(1).reduce((a,r)=>a+(r.sum||0),0);
+    return {c,b,glassCost,other,cost:(glassCost||0)+other,gross:b.gross,missing:b.missing||gp==null};
+  } finally { O=saved; }
+}
+function altGlassesFor(it){ const base=it.order.glass; let list;
+  if(Array.isArray(it.altGlasses)) list=it.altGlasses;
+  else if(it.altGlass==='none') list=[];
+  else if(it.altGlass&&it.altGlass!=='auto') list=[it.altGlass];
+  else list = String(S.altGlassDefault||'').split(',').map(x=>x.trim()).filter(Boolean);
+  return [...new Set(list)].filter(g=>g&&g!==base); }
+function orderHasTowel(o){ return o.sides.some(sd=>sd.els.some(e=>e.towel)); }
+function applyMarkup(cost,it){ const vat=1+(Number(S.vat)||0)/100; const pre = it.markupType==='amt' ? cost+Number(it.markup||0) : cost*(1+Number(it.markup||0)/100); return roundP(pre*vat); }
+function itemCalc(it){
+  const q=quoteCostFor(it.order); const price=applyMarkup(q.cost,it);
+  const install = it.install!=null&&it.install!=='' ? Number(it.install) : installFor(it.order);
+  const alts=[]; altGlassesFor(it).forEach(ag=>{ const qa=quoteCostFor(it.order,ag); if(qa.glassCost!=null){ const ap=applyMarkup(qa.cost,it); alts.push({kind:'glass',glass:ag, label:`זכוכית ${ag} במקום ${it.order.glass||''}`, price:ap, diff:ap-price}); } });
+  const extras=alts.slice();
+  if(it.extraTowel && !orderHasTowel(it.order)){ const o2=JSON.parse(JSON.stringify(it.order)); o2.sides.forEach(sd=>sd.els.forEach(e=>{ if(e.type!=='fixed') e.towel=true; })); const qt=quoteCostFor(o2); const tp=applyMarkup(qt.cost,it); const nd=o2.sides.reduce((a,sd)=>a+sd.els.filter(e=>e.type!=='fixed').length,0); if(nd) extras.push({kind:'towel',label:`ידית מגבת לרוחב הדלת${nd>1?` (${nd} דלתות)`:''}`,price:tp,diff:tp-price}); }
+  return {c:q.c,b:q.b,cost:q.cost,gross:q.gross,price,install,missing:q.missing,alt:alts[0]||null,alts,extras};
+}
+function quoteTotals(){
+  const vat=(Number(S.vat)||0)/100; let sub=0, inst=0, cost=0, missing=false;
+  const rows=Q.items.map(it=>{ const r=itemCalc(it); sub+=r.price; inst+=r.install; cost+=r.cost; if(r.missing) missing=true; return r; });
+  const disc=Number(Q.discount)||0; const incVat=Math.max(0,sub-disc);
+  const vatAmt=Math.round(incVat-incVat/(1+vat)); const net=incVat-vatAmt;
+  const instIncVat = S.installIncVat!==false ? inst : Math.round(inst*(1+vat));
+  return {rows,sub,disc,net,vatAmt,incVat,inst:instIncVat,total:incVat+instIncVat,cost,missing,profit:net-cost};
+}
+function renderQuote(){
+  $('qNo').textContent = Q.no ? '#'+Q.no : 'טיוטה';
+  $('q_name').value=Q.name||''; $('q_phone').value=Q.phone||''; $('q_address').value=Q.address||''; $('q_date').value=Q.date||''; $('q_valid').value=Q.valid||''; $('q_discount').value=Q.discount||''; $('q_terms').value=Q.terms??S.quoteTerms;
+  const lp=$('q_logoPrev'); if(S.logo){ lp.src=S.logo; lp.hidden=false; $('q_logoClear').hidden=false; } else { lp.hidden=true; $('q_logoClear').hidden=true; }
+  const c=$('qItems'); c.innerHTML= Q.items.length? '' : '<div class="hint" style="margin-top:8px">אין מקלחונים בהצעה עדיין.</div>';
+  const t=quoteTotals();
+  Q.items.forEach((it,i)=>{ const r=t.rows[i]; const d=document.createElement('div'); d.className='qitem';
+    d.innerHTML=`<div class="row" style="justify-content:space-between"><b>${i+1}. <input type="text" data-q="name" value="${esc(it.name||'')}" placeholder="שם המקלחון (למשל חדר הורים)" style="width:220px"></b><div class="row"><button class="small" data-edit>ערוך בטופס</button><button class="small ghost" data-del>✕</button></div></div>
+      <div class="desc">${esc(describeOrder(it.order))} · זכוכית ${esc(it.order.glass)} ${esc(it.order.thick)} מ"מ · פרזול ${esc(it.order.finish||'')}</div>
+      <div class="grid3">
+        <label>רווח<div class="row"><input type="number" step="1" data-q="markup" value="${it.markup??''}" style="width:90px"><select data-q="markupType" style="width:auto"><option value="pct"${it.markupType!=='amt'?' selected':''}>%</option><option value="amt"${it.markupType==='amt'?' selected':''}>₪</option></select></div></label>
+        <label>התקנה (₪)<input type="number" step="10" data-q="install" value="${it.install??''}" placeholder="${installFor(it.order)}"></label>
+        <label>אופן פתיחה (מופיע ללקוח)<input type="text" data-q="opening" value="${esc(it.opening??'')}" placeholder="${esc(openingText(it.order))}"></label>
+      </div>
+      <div style="margin-top:6px"><span class="hint"><b>מחירון תוספות ללקוח</b> – יוצג רק מה שתסמן (לא מסומן = ההצעה רק לזכוכית שנבחרה):</span><br><span class="altbox"><label class="chk"${orderHasTowel(it.order)?' title="ידית המגבת כבר כלולה במקלחון הזה"':''}><input type="checkbox" data-xt="towel"${it.extraTowel?' checked':''}${orderHasTowel(it.order)?' disabled':''}> ידית מגבת${orderHasTowel(it.order)?' (כלולה)':''}</label><span style="color:#bbb">|</span>${S.glassTypes.split(',').map(x=>x.trim()).filter(x=>x&&x!==it.order.glass).map(x=>{ const on=altGlassesFor(it).includes(x); const hasP=P[`glass|${x}|${it.order.thick}`]!=null; return `<label class="chk${hasP?'':' nop'}" title="${hasP?'':'אין מחיר במחירון ל-'+esc(it.order.thick)+' מ\"מ'}"><input type="checkbox" data-alt="${esc(x)}"${on?' checked':''}> ${esc(x)}</label>`; }).join('')}</span></div>
+      <div class="hint" style="margin-top:4px">עלות לחישוב ההצעה (זכוכית ברוטו ${r.gross.toFixed(2)} מ"ר + פרזול): ${nis(r.cost)}${r.missing?' (חלקי)':''} → מחיר ללקוח <b>${nis(r.price)}</b> כולל מע"מ${r.extras.map(a=>` · ${esc(a.label)}: ${a.diff>=0?'+':'−'}${nis(Math.abs(a.diff))}`).join('')}</div>`;
+    d.querySelectorAll('[data-q]').forEach(inp=>inp.addEventListener('input',()=>{ it[inp.dataset.q]=inp.value; saveQuoteDraft(); renderQuoteTotals(); }));
+    d.querySelectorAll('[data-xt]').forEach(cb=>cb.addEventListener('change',()=>{ it.extraTowel=cb.checked; renderQuote(); }));
+    d.querySelectorAll('[data-alt]').forEach(cb=>cb.addEventListener('change',()=>{ it.altGlasses=[...d.querySelectorAll('[data-alt]')].filter(c=>c.checked).map(c=>c.dataset.alt); delete it.altGlass; renderQuote(); }));
+    d.querySelector('[data-del]').onclick=()=>{ Q.items.splice(i,1); renderQuote(); };
+    d.querySelector('[data-edit]').onclick=()=>{ O=JSON.parse(JSON.stringify(it.order)); O.sides.forEach(sd=>sd.els.forEach(e=>e.id=uid++)); O._quoteItem=it; renderForm(); recalc(); document.querySelector('.tabs button[data-tab=general]').click(); window.scrollTo({top:0,behavior:'smooth'}); $('qMsg').textContent='המקלחון נטען לטופס – אחרי העריכה לחץ "הוסף את המקלחון שבטופס" והוא יעדכן את הפריט.'; };
+    c.appendChild(d); });
+  renderQuoteTotals(); renderQuotePreview(); renderSavedQuotes();
+}
+function renderQuoteTotals(){
+  const t=quoteTotals(); const v=Number(S.vat)||0;
+  let h=`<tr><td>סה"כ מקלחונים (כולל מע"מ)</td><td>${nis(t.sub)}</td></tr>`;
+  if(t.disc) h+=`<tr><td>הנחה</td><td>−${nis(t.disc)}</td></tr>`;
+  h+=`<tr><td><b>סה"כ כולל מע"מ</b> <span class="hint">(מתוכו מע"מ ${v}%: ${nis(t.vatAmt)})</span></td><td><b>${nis(t.incVat)}</b></td></tr><tr><td>התקנה – מדידה, הובלה והרכבה <span class="hint">(${esc(S.installNote||'')})</span></td><td>${nis(t.inst)}</td></tr><tr><td><b>סה"כ כולל התקנה</b></td><td><b>${nis(t.total)}</b></td></tr><tr><td class="hint">עלות שלי לפי חישוב ההצעה (פרטי): ${nis(t.cost)} · רווח לפני מע"מ: ${nis(t.profit)}${t.missing?' · יש מחירים חסרים במחירון':''}</td><td></td></tr>`;
+  $('qTotals').innerHTML=h;
+  const l=waQuoteLink(); const a=$('qWa'); if(l){ a.href=l; a.hidden=false; } else a.hidden=true;
+  $('qShare').hidden = !(l && navigator.share && navigator.canShare);
+}
+async function buildQuotePdfBlob(){ const pages=quotePagesSVG(); if(!window.jspdf) throw new Error('ספריית ה-PDF לא נטענה'); const {jsPDF}=window.jspdf; const doc=new jsPDF({unit:'px',format:[1000,1414],orientation:'portrait',hotfixes:['px_scaling']});
+  for(let i=0;i<pages.length;i++){ const blob=await svgToPngBlob(pages[i],1.5); const dataUrl=await new Promise(r=>{ const fr=new FileReader(); fr.onload=()=>r(fr.result); fr.readAsDataURL(blob); }); if(i>0) doc.addPage([1000,1414],'portrait'); doc.addImage(dataUrl,'PNG',0,0,1000,1414); }
+  return doc.output('blob'); }
+function waQuoteText(){ const l=waQuoteLink(); return l? decodeURIComponent(l.split('?text=')[1]) : ''; }
+$('qShare').onclick=async()=>{ const msg=$('qMsg'); msg.textContent='מכין PDF לשליחה…';
+  try{ const blob=await buildQuotePdfBlob(); const file=new File([blob],`הצעת מחיר ${Q.no||''} ${S.bizName||''}.pdf`.replace(/\s+/g,' ').trim(),{type:'application/pdf'});
+    if(!navigator.canShare({files:[file]})) throw new Error('הדפדפן הזה לא תומך בשיתוף קבצים');
+    await navigator.share({files:[file],text:waQuoteText(),title:`הצעת מחיר ${Q.no||''}`}); msg.textContent='נפתח חלון השיתוף – בחר וואטסאפ ואת הלקוח.';
+  }catch(e){ if(e&&e.name==='AbortError'){ msg.textContent='השיתוף בוטל.'; return; } msg.textContent='שיתוף ישיר לא זמין כאן ('+(e&&e.message||'')+'). השתמש ב"הורד PDF" ואז בכפתור הטקסט.'; } };
+function saveQuoteDraft(){ /* kept in memory until "שמור הצעה" */ }
+['q_name','q_phone','q_address','q_date','q_valid','q_discount','q_terms'].forEach(id=>$(id).addEventListener('input',()=>{ Q[id.slice(2)]=$(id).value; renderQuoteTotals(); }));
+function setLogoFromBlob(f){ if(!f||!/^image\//.test(f.type)){ $('qMsg').textContent='הקובץ שנבחר אינו תמונה.'; return; } const fr=new FileReader(); fr.onload=()=>{ const img=new Image(); img.onload=()=>{ try{ const k=Math.min(1,600/Math.max(img.width,img.height)); const cv=document.createElement('canvas'); cv.width=Math.round(img.width*k); cv.height=Math.round(img.height*k); cv.getContext('2d').drawImage(img,0,0,cv.width,cv.height); S.logo=cv.toDataURL('image/png'); saveSettings(); renderQuote(); $('qMsg').textContent='הלוגו נשמר.'; }catch(e){ $('qMsg').textContent='שמירת הלוגו נכשלה: '+(e&&e.message||e); } }; img.onerror=()=>{ $('qMsg').textContent='לא הצלחתי לקרוא את התמונה.'; }; img.src=fr.result; }; fr.onerror=()=>{ $('qMsg').textContent='קריאת הקובץ נכשלה.'; }; fr.readAsDataURL(f); }
+$('q_logo').addEventListener('change',e=>{ const f=e.target.files&&e.target.files[0]; setLogoFromBlob(f); e.target.value=''; });
+$('q_logoDrop').addEventListener('paste',e=>{ const it=[...(e.clipboardData&&e.clipboardData.items||[])].find(i=>i.type.startsWith('image/')); if(it){ e.preventDefault(); setLogoFromBlob(it.getAsFile()); } });
+$('q_logoDrop').addEventListener('dragover',e=>{ e.preventDefault(); }); $('q_logoDrop').addEventListener('drop',e=>{ e.preventDefault(); const f=e.dataTransfer&&e.dataTransfer.files&&e.dataTransfer.files[0]; setLogoFromBlob(f); });
+$('q_logoClear').onclick=()=>{ S.logo=''; saveSettings(); renderQuote(); };
+$('qNew').onclick=()=>{ Q=newQuote(); renderQuote(); };
+$('qAddCurrent').onclick=()=>{ if(!CUR||!CUR.glasses.length){ $('qMsg').textContent='אין מקלחון בטופס – בנה אותו קודם.'; return; }
+  const snap=cloneOrder(O); const existing=O._quoteItem && Q.items.find(x=>x===O._quoteItem);
+  if(existing){ existing.order=snap; existing.name=existing.name||O.room; }
+  else Q.items.push({name:O.room||'', order:snap, markup:S.markupDefault, markupType:S.markupTypeDefault||'pct', install:null, opening:''});
+  O._quoteItem=null; $('qMsg').textContent=existing?'הפריט עודכן.':'המקלחון נוסף להצעה.'; renderQuote(); };
+$('qSave').onclick=()=>{ if(!Q.no){ Q.no=String(S.quoteCounter||1000); S.quoteCounter=(Number(S.quoteCounter)||1000)+1; saveSettings(); }
+  const list=loadQuotes(); const i=list.findIndex(q=>q.no===Q.no); const copy=JSON.parse(JSON.stringify(Q)); copy.savedAt=new Date().toISOString(); copy.total=quoteTotals().total; if(i>=0) list[i]=copy; else list.unshift(copy); saveQuotesLocal(list); cloudSaveQuote(copy); renderQuote(); $('qMsg').textContent=`ההצעה נשמרה כמספר ${Q.no}.`; };
+function renderSavedQuotes(){ const sel=$('qSaved'); const list=loadQuotes(); sel.innerHTML='<option value="">הצעות שמורות…</option>'+list.map((q,i)=>`<option value="${i}">#${esc(q.no)} · ${esc(q.name||'')} · ${esc((q.date||'').split('-').reverse().join('/'))} · ${nis(q.total||0)}</option>`).join(''); }
+$('qSaved').addEventListener('change',e=>{ const i=e.target.value; if(i===''){ return; } Q=JSON.parse(JSON.stringify(loadQuotes()[Number(i)])); renderQuote(); });
+async function cloudSaveQuote(q){ if(STANDALONE){ fileSaveAll('quotes'); return; } if(!CLOUD.ok) return; try{ await cRoot().collection('quotes').doc('q'+q.no).set({q,updatedAt:new Date().toISOString()}); }catch(e){ CLOUD.ok=false; CLOUD.err='שמירת ההצעה בענן נכשלה'; setCloudStatus(); } }
+/* quote document pages (SVG) */
+function quoteCoverPages(){
+  const W=1000,PH=1414; const t=quoteTotals(); const v=Number(S.vat)||0; const pages=[]; let s=''; let y=0;
+  const header=(first)=>{ s=`<rect width="${W}" height="${PH}" fill="#fff"/>`;
+    let lineY;
+    if(S.logo){
+      if(first){ s+=`<image href="${S.logo}" x="520" y="40" width="420" height="200" preserveAspectRatio="xMaxYMid meet"/>`; s+=txt(60,120,S.bizName||'',{size:36,bold:true,anchor:'end'}); [S.bizPhone,S.bizAddress,S.bizEmail].filter(Boolean).forEach((l,i)=>s+=txt(60,156+i*24,l,{size:15,anchor:'end'})); lineY=262; }
+      else { s+=`<image href="${S.logo}" x="700" y="30" width="240" height="100" preserveAspectRatio="xMaxYMid meet"/>`; s+=txt(60,85,S.bizName||'',{size:24,bold:true,anchor:'end'}); lineY=145; }
+    } else { s+=txt(940,90,S.bizName||'',{size:34,bold:true,anchor:'start'}); s+=txt(940,125,[S.bizPhone,S.bizAddress,S.bizEmail].filter(Boolean).join(' · '),{size:15,anchor:'start'}); lineY=first?190:150; }
+    s+=`<line x1="60" y1="${lineY}" x2="940" y2="${lineY}" stroke="#0e7c86" stroke-width="3"/>`;
+    if(first){
+      y=lineY+50;
+      s+=txt(940,y,`הצעת מחיר מס' ${Q.no||'טיוטה'}`,{size:28,bold:true,anchor:'start'});
+      s+=txt(60,y,`תאריך: ${(Q.date||'').split('-').reverse().join('/')}   בתוקף עד: ${(Q.valid||'').split('-').reverse().join('/')}`,{size:15,anchor:'end'});
+      y+=45; s+=txt(940,y,`לכבוד: ${Q.name||''}`,{size:20,bold:true,anchor:'start'});
+      y+=27; s+=txt(940,y,[Q.phone,Q.address].filter(Boolean).join(' · '),{size:15,anchor:'start'});
+      y+=33;
+    } else { y=lineY+40; s+=txt(940,y,`הצעת מחיר מס' ${Q.no||'טיוטה'} – המשך`,{size:20,bold:true,anchor:'start'}); y+=30; }
+  };
+  const footer=(n)=>{ s+=txt(500,1385,`${S.bizName||''} · ${S.bizPhone||''} · עמוד ${n}`,{size:13}); pages.push(svgWrap(W,PH,s)); };
+  header(true);
+  const rowH=400;
+  Q.items.forEach((it,i)=>{ const r=t.rows[i]; const o=it.order;
+    if(y+rowH>1330){ footer(pages.length+1); header(false); }
+    s+=`<rect x="60" y="${y}" width="880" height="${rowH-10}" fill="${i%2?'#fff':'#f6fafa'}" stroke="#d5dde2"/>`;
+    // drawing (scaled projection) on the left
+    const saved=O; O=o; try{ const c=compute(); s+=assembledSVG(c,{x:75,y:y+22,w:440,h:rowH-62},0.8); } finally { O=saved; }
+    // text on the right
+    const tx=930, ty=y+34;
+    s+=txt(tx,ty,`${i+1}. מקלחון${it.name?' – '+it.name:''}`,{size:19,bold:true,anchor:'start'});
+    const lines=[describeOrder(o), `זכוכית ${o.thick} מ"מ ${o.glass||''} · פרזול ${o.finish||'ניקל'}`, `${it.opening||openingText(o)}`, `מידות ברוטו לפי מדידה, לפני הורדות`];
+    let ly=ty+30; lines.flatMap(l=>wrapLines(l,44)).forEach(l=>{ s+=txt(tx,ly,l,{size:14,anchor:'start'}); ly+=22; });
+    const nA=r.extras.length; let py=y+rowH-40-nA*22;
+    s+=txt(tx,py,`מחיר כולל מע"מ: ${nis(r.price)}  (זכוכית ${o.glass||''}${orderHasTowel(o)?' · כולל ידית מגבת':''})`,{size:17,bold:true,anchor:'start'});
+    if(nA){ py+=22; s+=txt(tx,py,'תוספות אופציונליות (לא כלולות במחיר, לבחירתך):',{size:13,bold:true,anchor:'start'}); }
+    r.extras.forEach((a,k)=>{ s+=txt(tx-14,py+20*(k+1),`• ${a.label}: ${a.diff>=0?'+':'−'}${nis(Math.abs(a.diff))} כולל מע"מ  (סה"כ ${nis(a.price)})`,{size:14,anchor:'start'}); });
+    y+=rowH;
+  });
+  // warranty highlight
+  if(y+60>1330){ footer(pages.length+1); header(false); }
+  s+=`<rect x="60" y="${y}" width="880" height="44" fill="#e0f2f3" stroke="#0e7c86" stroke-width="1.5" rx="4"/>`;
+  s+=txt(500,y+29,`✔ ${S.warrantyText||''}`,{size:17,bold:true}); y+=64;
+  // totals
+  const termLines=String(Q.terms||'').split('\n').flatMap(l=>wrapLines(l,95));
+  const needed=6*30+40+26+termLines.length*21+20;
+  if(y+needed>1340){ footer(pages.length+1); header(false); }
+  const tot=(label,val,bold,note)=>{ s+=txt(600,y,label,{size:bold?18:16,bold,anchor:'start'}); s+=txt(130,y,val,{size:bold?18:16,bold,anchor:'end'}); if(note){ y+=20; s+=txt(600,y,note,{size:12,anchor:'start'}); } y+=30; };
+  y+=10; tot('סה"כ מקלחונים',nis(t.sub)); if(t.disc) tot('הנחה','−'+nis(t.disc)); tot('סה"כ כולל מע"מ',nis(t.incVat),true,`המחיר כולל מע"מ ${v}% (${nis(t.vatAmt)})`);
+  tot('התקנה – מדידה, הובלה והרכבה',nis(t.inst),false,S.installNote||'');
+  s+=`<line x1="60" y1="${y-18}" x2="600" y2="${y-18}" stroke="#111"/>`; tot('סה"כ כולל התקנה',nis(t.total),true);
+  y+=10; s+=txt(940,y,'תנאים והערות',{size:16,bold:true,anchor:'start'}); y+=26;
+  termLines.forEach(l=>{ s+=txt(940,y,l,{size:13,anchor:'start'}); y+=21; });
+  footer(pages.length+1);
+  return pages;
+}
+function quotePagesSVG(){ const pages=quoteCoverPages(); Q.items.forEach((it,i)=>{ const saved=O; O=it.order; try{ const c=compute(); pages.push(generalSVG(c,{customer:true,title:`מקלחון ${i+1}${it.name?' – '+it.name:''}`,opening:it.opening||openingText(it.order),logo:S.logo,lines:[`הצעת מחיר מס' ${Q.no||'טיוטה'} · ${Q.name||''}`,`מחיר כולל מע"מ: ${nis(itemCalc(it).price)} · התקנה ${nis(itemCalc(it).install)} (${S.installNote||''})`].concat(itemCalc(it).extras.length?['תוספות אופציונליות (לא כלולות במחיר): '+itemCalc(it).extras.map(a=>`${a.label} ${a.diff>=0?'+':'−'}${nis(Math.abs(a.diff))}`).join(' · ')]:[]).concat([`✔ ${S.warrantyText||''}`])})); } finally { O=saved; } }); return pages; }
+function renderQuotePreview(){ try{ $('qPreview').innerHTML = quotePagesSVG().join('<div style="height:12px"></div>'); }catch(e){ $('qPreview').innerHTML=''; } }
+$('qPdf').onclick=async()=>{ const msg=$('qMsg'); msg.textContent='מכין PDF…';
+  try{ const pages=quotePagesSVG();
+    if(!window.jspdf){ // no PDF library (offline) – deliver the pages as images instead
+      for(let i=0;i<pages.length;i++){ const blob=await svgToPngBlob(pages[i],1.5); const name=`הצעת מחיר ${Q.no||''} עמוד ${i+1}.png`; if(downloads){ await downloads.save({filename:name,data:blob}); } else { const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=name; document.body.appendChild(a); a.click(); a.remove(); } }
+      msg.textContent='אין חיבור לספריית ה-PDF (נדרש אינטרנט) – ההצעה ירדה כתמונות, עמוד לכל קובץ.'; return; } const {jsPDF}=window.jspdf; const doc=new jsPDF({unit:'px',format:[1000,1414],orientation:'portrait',hotfixes:['px_scaling']});
+    for(let i=0;i<pages.length;i++){ const blob=await svgToPngBlob(pages[i],1.5); const dataUrl=await new Promise(r=>{ const fr=new FileReader(); fr.onload=()=>r(fr.result); fr.readAsDataURL(blob); }); if(i>0) doc.addPage([1000,1414],'portrait'); doc.addImage(dataUrl,'PNG',0,0,1000,1414); }
+    const name=`הצעת מחיר ${Q.no||''} ${Q.name||''}.pdf`.replace(/\s+/g,' ').trim(); const out=doc.output('blob');
+    if(downloads){ await downloads.save({filename:name,data:out}); msg.textContent='ה-PDF נשמר.'; }
+    else { const a=document.createElement('a'); a.href=URL.createObjectURL(out); a.download=name; document.body.appendChild(a); a.click(); a.remove(); msg.textContent='ה-PDF ירד לתיקיית ההורדות.'; }
+  }catch(e){ msg.textContent='יצירת ה-PDF נכשלה: '+(e&&e.message||e&&e.code||e); } };
+function waQuoteLink(){ let ph=String(Q.phone||'').replace(/[^\d]/g,''); if(!ph) return null; if(ph.startsWith('0')) ph='972'+ph.slice(1);
+  const t=quoteTotals(); const lines=[`שלום ${Q.name||''}, הצעת מחיר מ${S.bizName||'מקלחונליין'}${Q.no?' (מס\' '+Q.no+')':''}:`];
+  Q.items.forEach((it,i)=>{ const o=it.order; lines.push(`${i+1}. ${it.name?it.name+' – ':''}${describeOrder(o)}, זכוכית ${o.glass} ${o.thick} מ"מ, פרזול ${o.finish||'ניקל'} – ${nis(t.rows[i].price)} כולל מע"מ${t.rows[i].extras.length?`\n   תוספות אופציונליות: ${t.rows[i].extras.map(a=>`${a.label} ${a.diff>=0?'+':'−'}${nis(Math.abs(a.diff))}`).join(' · ')}`:''}`); });
+  if(t.disc) lines.push(`הנחה: ${nis(t.disc)}`);
+  lines.push(`התקנה – מדידה, הובלה והרכבה: ${nis(t.inst)} (${S.installNote||''})`, `סה"כ כולל התקנה: ${nis(t.total)}`, `✔ ${S.warrantyText||''}`, `ההצעה בתוקף עד ${(Q.valid||'').split('-').reverse().join('/')}. הצעת המחיר המפורטת עם השרטוטים מצורפת כקובץ PDF.`);
+  return 'https://wa.me/'+ph+'?text='+encodeURIComponent(lines.join('\n')); }
+
+/* boot */
+renderSettings(); renderSaved(); renderModelList(); setCloudStatus(); cloudInit();
+O=newOrder(); renderForm(); recalc();
+try{ const t=localStorage.getItem('bl_tab'); if(t&&$('tab-'+t)) document.querySelector(`.tabs button[data-tab="${t}"]`).click(); }catch(e){}
+</script>
+
+<!-- ===== Bariline CRM embed add-on (added for CRM integration; the original code above is unchanged) ===== -->
+<style>
+#blBar{position:sticky;top:0;z-index:60;display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:8px 12px;background:#eef6ff;border-bottom:1px solid #b9d6f5;font-size:14px;direction:rtl}
+#blBar b{margin-left:6px}
+#blBar .blMsg{color:#555}
+#blBar .blMsg.ok{color:#1f6b34;font-weight:700}
+#blBar .blMsg.err{color:#b00020;font-weight:700}
+</style>
+<script>
+(function(){
+  const QS = new URLSearchParams(location.search);
+  if (QS.get('embed') !== '1') return;
+  const ORDER_NO = QS.get('no') || '';
+  const bar = document.createElement('div'); bar.id = 'blBar';
+  bar.innerHTML = '<b>הזמנה ' + esc(ORDER_NO) + '</b>'
+    + '<button id="blSaveDrawing" class="primary">💾 שמור בהזמנה</button>'
+    + '<span id="blSavedItems"></span>'
+    + '<span class="blMsg" id="blMsg">השרטוט, החישובים וההגדרות פועלים בדיוק כמו קודם. "שמור בהזמנה" שומר את המקלחון המוצג (והצעת המחיר, אם יש) בהזמנה ב-CRM.</span>';
+  document.body.insertBefore(bar, document.body.firstChild);
+  const msg = (t, cls) => { const m = $('blMsg'); m.textContent = t; m.className = 'blMsg' + (cls ? ' ' + cls : ''); };
+  let SAVED = [];
+  const loadSnapshot = snap => { O = JSON.parse(JSON.stringify(snap)); O.sides.forEach(s => s.els.forEach(e => { e.id = uid++; })); renderForm(); recalc(); msg('נטען השרטוט השמור בהזמנה.', 'ok'); };
+  const renderSavedItems = () => {
+    const box = $('blSavedItems'); box.innerHTML = '';
+    if (!SAVED.length) return;
+    const t = document.createElement('span'); t.textContent = 'שמור בהזמנה: '; box.appendChild(t);
+    SAVED.forEach(it => { const b = document.createElement('button'); b.className = 'small'; b.textContent = it.label || 'מקלחון'; b.title = 'פתח את השרטוט השמור'; b.onclick = () => loadSnapshot(it.snapshot); box.appendChild(b); });
+  };
+  $('blSaveDrawing').onclick = () => {
+    try {
+      if (!O.sides || !O.sides.some(sd => sd.els.length)) { msg('אין שרטוט לשמור.', 'err'); return; }
+      const c = compute();
+      const snapshot = cloneOrder(O);
+      const item = {
+        key: orderKey(O),
+        label: O.optLabel || O.room || 'מקלחון',
+        summary: describeOrder(O),
+        hardware: Object.assign({}, c.hw),
+        hardwareText: O.hwText || '',
+        glassCount: c.glasses.length,
+        warnings: c.warns.slice(0, 10),
+        snapshot
+      };
+      let quote = null;
+      if (Q && Q.items && Q.items.length) {
+        const t = quoteTotals();
+        // customer price only — private costs and profit never leave the drawing system
+        quote = { no: Q.no || '', total: t.total, incVat: t.incVat, install: t.inst, discount: t.disc, items: Q.items.length, missingPrices: !!t.missing };
+      }
+      $('blSaveDrawing').disabled = true; msg('שומר…');
+      window.parent.postMessage({ type: 'bariline:drawing', item, quote }, location.origin);
+    } catch (e) { msg('השמירה נכשלה: ' + (e && e.message || e), 'err'); }
+  };
+  window.addEventListener('message', e => {
+    if (e.origin !== location.origin || !e.data) return;
+    if (e.data.type === 'bariline:drawing-init') { SAVED = Array.isArray(e.data.items) ? e.data.items : []; renderSavedItems(); }
+    if (e.data.type === 'bariline:saved') { $('blSaveDrawing').disabled = false; SAVED = Array.isArray(e.data.items) ? e.data.items : SAVED; renderSavedItems(); msg('✅ נשמר בהזמנה.', 'ok'); }
+    if (e.data.type === 'bariline:save-failed') { $('blSaveDrawing').disabled = false; msg('השמירה נכשלה – נסה שוב.', 'err'); }
+  });
+  window.parent.postMessage({ type: 'bariline:drawing-ready' }, location.origin);
+})();
+</script>
+
+</body>
+</html>

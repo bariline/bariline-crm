@@ -4818,6 +4818,105 @@ const WorkOrdersPage = ({
       ...patch
     } : prev);
   };
+  const latestOrdersRef = useRef(workOrders);
+  latestOrdersRef.current = workOrders;
+  const openDrawing = order => {
+    const cur = currentMeasurement(order);
+    setMeasureFrame({
+      orderId: order.id,
+      mode: "drawing",
+      customer: order.customerName || "",
+      src: "drawing.html?embed=1&no=" + encodeURIComponent(order.id) + (cur ? "#m=" + cur.hash : "")
+    });
+  };
+  const approveQuote = id => {
+    const wo = latestOrdersRef.current.find(w => w.id === id);
+    const q = wo && wo.drawing && wo.drawing.quote;
+    if (!q || !(q.total > 0)) return;
+    if (!confirm(`\u05DC\u05E2\u05D3\u05DB\u05DF \u05D0\u05EA \u05E1\u05DB\u05D5\u05DD \u05D4\u05D4\u05D6\u05DE\u05E0\u05D4 \u05DC-\u20AA${q.total.toLocaleString()}?`)) return;
+    const patch = {
+      amount: q.total,
+      quoteApproved: true
+    };
+    setWorkOrders(prev => prev.map(w => w.id === id ? addLog({
+      ...w,
+      ...patch
+    }, "quote_approved", {
+      amount: q.total
+    }) : w));
+    setSelected(prev => prev && prev.id === id ? {
+      ...prev,
+      ...patch
+    } : prev);
+  };
+  useEffect(() => {
+    const onDrawingMsg = e => {
+      if (e.origin !== window.location.origin || !e.data) return;
+      const frame = measureFrameRef.current;
+      if (!frame || frame.mode !== "drawing") return;
+      const reply = msg => {
+        try {
+          e.source && e.source.postMessage(msg, window.location.origin);
+        } catch (err) {}
+      };
+      const wo = latestOrdersRef.current.find(w => w.id === frame.orderId);
+      const items = wo && wo.drawing && Array.isArray(wo.drawing.items) ? wo.drawing.items : [];
+      if (e.data.type === "bariline:drawing-ready") {
+        reply({
+          type: "bariline:drawing-init",
+          items
+        });
+        return;
+      }
+      if (e.data.type !== "bariline:drawing") return;
+      try {
+        const {
+          item,
+          quote
+        } = e.data;
+        if (!item || !item.key || !item.snapshot) throw new Error("bad item");
+        const savedAt = new Date().toISOString();
+        const nextItems = [...items.filter(x => x.key !== item.key), {
+          ...item,
+          savedAt
+        }];
+        const apply = w => {
+          const prevDrawing = w.drawing && typeof w.drawing === "object" ? w.drawing : {};
+          const next = {
+            ...prevDrawing,
+            items: nextItems,
+            savedAt
+          };
+          if (quote) {
+            next.quote = {
+              ...quote,
+              savedAt
+            };
+          }
+          const out = {
+            ...w,
+            drawing: next
+          };
+          // a new price needs the manager's approval again
+          if (quote && (!prevDrawing.quote || prevDrawing.quote.total !== quote.total)) out.quoteApproved = false;
+          return out;
+        };
+        setWorkOrders(prev => prev.map(w => w.id === frame.orderId ? addLog(apply(w), "drawing_saved") : w));
+        setSelected(prev => prev && prev.id === frame.orderId ? apply(prev) : prev);
+        reply({
+          type: "bariline:saved",
+          items: nextItems
+        });
+      } catch (err) {
+        console.error("[DRAWING] save failed:", err);
+        reply({
+          type: "bariline:save-failed"
+        });
+      }
+    };
+    window.addEventListener("message", onDrawingMsg);
+    return () => window.removeEventListener("message", onDrawingMsg);
+  }, []);
   useEffect(() => {
     const onMsg = async e => {
       if (e.origin !== window.location.origin || !e.data || e.data.type !== "bariline:measurement") return;
@@ -6398,7 +6497,11 @@ const WorkOrdersPage = ({
       size: "sm",
       variant: "outline",
       onClick: () => requestRemeasure(selected.id)
-    }, "\u05D1\u05E7\u05E9 \u05DE\u05D3\u05D9\u05D3\u05D4 \u05D7\u05D5\u05D6\u05E8\u05EA"), !selected.measured && !selected.installerId && /*#__PURE__*/React.createElement("div", {
+    }, "\u05D1\u05E7\u05E9 \u05DE\u05D3\u05D9\u05D3\u05D4 \u05D7\u05D5\u05D6\u05E8\u05EA"), role === "admin" && /*#__PURE__*/React.createElement(Button, {
+      size: "sm",
+      variant: "outline",
+      onClick: () => openDrawing(selected)
+    }, "\uD83D\uDCD0 \u05E4\u05EA\u05D7 \u05D1\u05E9\u05E8\u05D8\u05D5\u05D8"), !selected.measured && !selected.installerId && /*#__PURE__*/React.createElement("div", {
       style: {
         fontSize: 12,
         color: colors.warning,
@@ -6452,7 +6555,57 @@ const WorkOrdersPage = ({
         whiteSpace: "pre-wrap",
         lineHeight: 1.6
       }
-    }, currentMeasurement(selected).summary || "")), measureFrame && ReactDOM.createPortal(/*#__PURE__*/React.createElement("div", {
+    }, currentMeasurement(selected).summary || "")), role === "admin" && selected.drawing && Array.isArray(selected.drawing.items) && selected.drawing.items.length > 0 && /*#__PURE__*/React.createElement("div", {
+      style: {
+        marginTop: 12,
+        padding: 10,
+        background: "#f0f7ff",
+        border: `1px solid ${colors.border}`,
+        borderRadius: 10
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 12,
+        fontWeight: 700,
+        marginBottom: 6,
+        color: colors.textLight
+      }
+    }, "\u05E9\u05E8\u05D8\u05D5\u05D8 \u05D9\u05D9\u05E6\u05D5\u05E8 \u2014 \u05E0\u05E9\u05DE\u05E8 ", (selected.drawing.savedAt || "").slice(0, 10)), selected.drawing.items.map(it => /*#__PURE__*/React.createElement("div", {
+      key: it.key,
+      style: {
+        fontSize: 12,
+        lineHeight: 1.6,
+        marginBottom: 6
+      }
+    }, /*#__PURE__*/React.createElement("b", null, it.label, ": "), it.summary, it.hardware && Object.keys(it.hardware).length > 0 && /*#__PURE__*/React.createElement("div", {
+      style: {
+        color: colors.textMuted
+      }
+    }, "\u05E4\u05E8\u05D6\u05D5\u05DC: ", Object.entries(it.hardware).map(([n, q]) => `${n} \u00D7${q}`).join(" \u00B7 ")))), selected.drawing.quote && /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: "flex",
+        alignItems: "center",
+        gap: 8,
+        flexWrap: "wrap",
+        marginTop: 6,
+        paddingTop: 6,
+        borderTop: `1px solid ${colors.border}`
+      }
+    }, /*#__PURE__*/React.createElement("b", null, "\u05D4\u05E6\u05E2\u05EA \u05DE\u05D7\u05D9\u05E8", selected.drawing.quote.no ? ` #${selected.drawing.quote.no}` : "", ": \u20AA", Number(selected.drawing.quote.total || 0).toLocaleString()), selected.drawing.quote.missingPrices && /*#__PURE__*/React.createElement("span", {
+      style: {
+        color: colors.warning,
+        fontSize: 12
+      }
+    }, "\u05D7\u05E1\u05E8\u05D9\u05DD \u05DE\u05D7\u05D9\u05E8\u05D9\u05DD \u05D1\u05DE\u05D7\u05D9\u05E8\u05D5\u05DF"), selected.quoteApproved && selected.amount === selected.drawing.quote.total ? /*#__PURE__*/React.createElement("span", {
+      style: {
+        color: colors.success,
+        fontSize: 12,
+        fontWeight: 700
+      }
+    }, "\u2714 \u05DE\u05D7\u05D9\u05E8 \u05DE\u05D0\u05D5\u05E9\u05E8") : /*#__PURE__*/React.createElement(Button, {
+      size: "sm",
+      onClick: () => approveQuote(selected.id)
+    }, "\u05D0\u05E9\u05E8 \u05DE\u05D7\u05D9\u05E8 \u05D5\u05E2\u05D3\u05DB\u05DF \u05E1\u05DB\u05D5\u05DD"))), measureFrame && ReactDOM.createPortal(/*#__PURE__*/React.createElement("div", {
       style: {
         position: "fixed",
         inset: 0,
@@ -6471,7 +6624,7 @@ const WorkOrdersPage = ({
         borderBottom: `1px solid ${colors.border}`,
         background: colors.bg
       }
-    }, /*#__PURE__*/React.createElement("b", null, measureFrame.mode === "view" ? "\u05E6\u05E4\u05D9\u05D9\u05D4 \u05D1\u05DE\u05D3\u05D9\u05D3\u05D4" : "\u05D8\u05D5\u05E4\u05E1 \u05DE\u05D3\u05D9\u05D3\u05D4", " \u2014 ", measureFrame.customer), /*#__PURE__*/React.createElement(Button, {
+    }, /*#__PURE__*/React.createElement("b", null, measureFrame.mode === "drawing" ? "\u05E9\u05E8\u05D8\u05D5\u05D8 \u05D5\u05D9\u05D9\u05E6\u05D5\u05E8" : measureFrame.mode === "view" ? "\u05E6\u05E4\u05D9\u05D9\u05D4 \u05D1\u05DE\u05D3\u05D9\u05D3\u05D4" : "\u05D8\u05D5\u05E4\u05E1 \u05DE\u05D3\u05D9\u05D3\u05D4", " \u2014 ", measureFrame.customer), /*#__PURE__*/React.createElement(Button, {
       size: "sm",
       variant: "outline",
       onClick: () => {
@@ -6834,7 +6987,7 @@ const WorkOrdersPage = ({
         fontSize: 12,
         fontWeight: 600
       }
-    }, log.action === "assigned" && `${log.by} לקח עבודה — התקנה ל-${log.scheduledDate}`, log.action === "measured" && `${log.by} — מדידה בוצעה`, log.action === "measurement_confirmed" && "מנהל אישר מדידה — נשלח לייצור", log.action === "remeasure_requested" && "מנהל ביקש מדידה חוזרת", log.action === "started" && `${log.by} — התחיל עבודה`, log.action === "completed" && `${log.by} — סיים עבודה + חתימה`, log.action === "cancelled" && "הזמנה בוטלה (לקוח ביטל)", log.action === "reject_requested" && `${log.by} ביקש ביטול — ${log.reason}`, log.action === "reject_approved" && `מנהל אישר ביטול — מוצר ${log.productReturned ? "חזר למחסן" : "לא חזר למחסן"}`, log.action === "reject_denied" && "מנהל דחה בקשת ביטול — הוחזר לעבודה", log.action === "status_change" && `סטטוס שונה`, log.action === "photo_before" && `${log.by} — צילם לפני`, log.action === "photo_after" && `${log.by} — צילם אחרי`, log.action === "rematch_assigned" && `${log.by} שובץ מחדש (זכוכית מוכנה) — התקנה ל-${log.scheduledDate}`, log.action === "glass_ready" && "מנהל סימן זכוכית מוכנה", log.action === "admin_reassign" && `מנהל שינה מתקין ל-${log.newInstaller}`, log.action === "problem_reported" && `${log.by} — דיווח בעיה`, log.action === "installer_note" && `${log.by} — הערה: ${log.note}`), /*#__PURE__*/React.createElement("div", {
+    }, log.action === "assigned" && `${log.by} לקח עבודה — התקנה ל-${log.scheduledDate}`, log.action === "measured" && `${log.by} — מדידה בוצעה`, log.action === "measurement_confirmed" && "מנהל אישר מדידה — נשלח לייצור", log.action === "remeasure_requested" && "מנהל ביקש מדידה חוזרת", log.action === "drawing_saved" && "שרטוט נשמר בהזמנה", log.action === "quote_approved" && `מנהל אישר מחיר — ₪${(log.amount || 0).toLocaleString()}`, log.action === "started" && `${log.by} — התחיל עבודה`, log.action === "completed" && `${log.by} — סיים עבודה + חתימה`, log.action === "cancelled" && "הזמנה בוטלה (לקוח ביטל)", log.action === "reject_requested" && `${log.by} ביקש ביטול — ${log.reason}`, log.action === "reject_approved" && `מנהל אישר ביטול — מוצר ${log.productReturned ? "חזר למחסן" : "לא חזר למחסן"}`, log.action === "reject_denied" && "מנהל דחה בקשת ביטול — הוחזר לעבודה", log.action === "status_change" && `סטטוס שונה`, log.action === "photo_before" && `${log.by} — צילם לפני`, log.action === "photo_after" && `${log.by} — צילם אחרי`, log.action === "rematch_assigned" && `${log.by} שובץ מחדש (זכוכית מוכנה) — התקנה ל-${log.scheduledDate}`, log.action === "glass_ready" && "מנהל סימן זכוכית מוכנה", log.action === "admin_reassign" && `מנהל שינה מתקין ל-${log.newInstaller}`, log.action === "problem_reported" && `${log.by} — דיווח בעיה`, log.action === "installer_note" && `${log.by} — הערה: ${log.note}`), /*#__PURE__*/React.createElement("div", {
       style: {
         fontSize: 11,
         color: colors.textMuted
