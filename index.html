@@ -289,6 +289,33 @@ async function fsLoadCollection(collectionName, fromServer) {
   }
 }
 
+// ─── Integration fields (measurement + drawing systems) ────
+// Added in memory only when an order is loaded. Nothing is written to the database
+// until one of these fields actually changes, so existing orders stay untouched.
+//   measurements: [{ hash, data, submittedAt, submittedBy }]  — every submitted measurement is kept;
+//                 a correction is a NEW measurement, the latest one is the current one
+//   drawing:      { hash, data, quoteAmount, hardwareList, savedAt, savedBy } | null
+//   quoteApproved: manager approved the drawing price into `amount`
+const WORK_ORDER_INTEGRATION_DEFAULTS = {
+  measurements: [],
+  drawing: null,
+  quoteApproved: false
+};
+function withIntegrationDefaults(order) {
+  if (!order || typeof order !== "object") return order;
+  const out = {
+    ...order
+  };
+  Object.entries(WORK_ORDER_INTEGRATION_DEFAULTS).forEach(([k, v]) => {
+    if (out[k] === undefined) out[k] = Array.isArray(v) ? [] : v;
+  });
+  return out;
+}
+function currentMeasurement(order) {
+  const list = order && Array.isArray(order.measurements) ? order.measurements : [];
+  return list.length ? list[list.length - 1] : null;
+}
+
 // Fields that contain large base64 data — save to localStorage instead of Firestore
 const LOCAL_STORAGE_FIELDS = ["measurementPhoto", "orderPdfData", "signedWarrantyData"];
 const PHOTO_FIELDS = ["photos"];
@@ -558,20 +585,34 @@ async function shrinkLargeFields(data) {
   }
   return result;
 }
-async function fsSaveDocument(collectionName, docId, data) {
+// changedKeys (optional): write ONLY these top-level fields, merged into the existing document.
+// This prevents a device with slightly stale data from overwriting fields that another
+// device (or the measurement / drawing modules) changed in the meantime.
+async function fsSaveDocument(collectionName, docId, data, changedKeys) {
   const db = getDb();
   if (!db) return false;
   try {
     // Save original large base64 fields to localStorage as high-res backup
     saveLocalFields(collectionName, docId, data);
+    let toWrite = data;
+    if (Array.isArray(changedKeys)) {
+      toWrite = {};
+      changedKeys.forEach(k => {
+        if (k in data) toWrite[k] = data[k];
+      });
+      if (Object.keys(toWrite).length === 0) return true;
+    }
     // Compress large photos/PDFs to fit within Firestore 1MB doc limit
-    const shrunk = await shrinkLargeFields(data);
+    const shrunk = await shrinkLargeFields(toWrite);
     // Strip any remaining oversized fields (safety net)
     const stripped = stripLargeFields(shrunk);
     // Deep-sanitize to remove undefined/functions that Firestore rejects
     const cleanData = sanitizeForFirestore(stripped);
-    console.log("[SAVE] Writing to Firestore:", collectionName, docId, Object.keys(cleanData).length, "fields");
-    await db.collection(collectionName).doc(String(docId)).set(cleanData);
+    console.log("[SAVE] Writing to Firestore:", collectionName, docId, Object.keys(cleanData).length, "fields", changedKeys ? "(changed only)" : "(full, merge)");
+    // merge:true — never wipes fields that this device doesn't know about
+    await db.collection(collectionName).doc(String(docId)).set(cleanData, {
+      merge: true
+    });
     usageCounters.writes++;
     console.log("[SAVE] SUCCESS:", collectionName, docId);
     return true;
@@ -584,7 +625,25 @@ async function fsDeleteDocument(collectionName, docId) {
   const db = getDb();
   if (!db) return false;
   try {
-    await db.collection(collectionName).doc(String(docId)).delete();
+    const ref = db.collection(collectionName).doc(String(docId));
+    // Safety net: keep a copy in _trash before deleting, so nothing is ever lost for good
+    try {
+      const snap = await ref.get();
+      if (snap.exists) {
+        await db.collection("_trash").doc(`${collectionName}__${docId}__${Date.now()}`).set({
+          collection: collectionName,
+          docId: String(docId),
+          deletedAt: new Date().toISOString(),
+          data: snap.data()
+        });
+        usageCounters.writes++;
+      }
+    } catch (trashErr) {
+      // If we cannot keep a copy, do NOT delete
+      console.error("Trash copy failed — delete cancelled:", collectionName, docId, trashErr);
+      return false;
+    }
+    await ref.delete();
     usageCounters.deletes++;
     return true;
   } catch (err) {
@@ -10898,6 +10957,8 @@ function App() {
 
   // ─── Pending saves queue — retries saves that failed because DB wasn't ready ────
   const pendingQueueRef = useRef([]);
+  // Saves that failed — retried by the "save all" button (instead of rewriting every document)
+  const failedSavesRef = useRef(new Map());
   const flushPendingQueue = useCallback(async () => {
     if (pendingQueueRef.current.length === 0) return;
     const queue = [...pendingQueueRef.current];
@@ -10956,14 +11017,33 @@ function App() {
       const key = String(item[idField]);
       const prevItem = prevMap.get(key);
       // Only save if item is new or changed (compare sanitized versions)
-      const prevStr = prevItem ? JSON.stringify(sanitizeForFirestore(stripLargeFields(prevItem))) : null;
-      const nextStr = JSON.stringify(sanitizeForFirestore(stripLargeFields(item)));
+      const prevClean = prevItem ? sanitizeForFirestore(stripLargeFields(prevItem)) : null;
+      const nextClean = sanitizeForFirestore(stripLargeFields(item));
+      const prevStr = prevClean ? JSON.stringify(prevClean) : null;
+      const nextStr = JSON.stringify(nextClean);
       if (!prevStr || prevStr !== nextStr) {
-        console.log("[SYNC] Item changed/new, saving:", collectionName, item[idField], prevStr ? "CHANGED" : "NEW");
-        const ok = await fsSaveDocument(collectionName, item[idField], item);
+        // For existing items, write only the fields that actually changed
+        let changedKeys;
+        if (prevClean) {
+          changedKeys = Object.keys(nextClean).filter(k => {
+            if (JSON.stringify(nextClean[k]) === JSON.stringify(prevClean[k])) return false;
+            // Never push an empty integration default over data that may exist on the server
+            if (!(k in prevClean) && k in WORK_ORDER_INTEGRATION_DEFAULTS && JSON.stringify(nextClean[k]) === JSON.stringify(WORK_ORDER_INTEGRATION_DEFAULTS[k])) return false;
+            return true;
+          });
+        }
+        console.log("[SYNC] Item changed/new, saving:", collectionName, item[idField], prevStr ? "CHANGED " + changedKeys.join(",") : "NEW");
+        const ok = await fsSaveDocument(collectionName, item[idField], item, changedKeys);
         if (!ok) {
           allOk = false;
+          failedSavesRef.current.set(collectionName + "::" + key, {
+            collectionName,
+            item,
+            changedKeys
+          });
           console.error("[SYNC] SAVE FAILED for", collectionName, item[idField]);
+        } else {
+          failedSavesRef.current.delete(collectionName + "::" + key);
         }
       }
     }
@@ -11053,18 +11133,26 @@ function App() {
       name: COLLECTIONS.installers,
       data: installersRef.current
     }];
+    // Keep the local safety copy up to date
     for (const {
       name,
       data
     } of collections) {
-      if (!Array.isArray(data)) continue;
-      saveToLocalBackup(name, data);
-      for (const item of data) {
-        const ok = await fsSaveDocument(name, item.id, item);
-        if (!ok) {
-          allOk = false;
-          console.error("Force save failed:", name, item.id);
-        }
+      if (Array.isArray(data)) saveToLocalBackup(name, data);
+    }
+    // Every change is already saved automatically. Here we only retry the saves
+    // that failed, and items still waiting in the queue — we do NOT rewrite every
+    // document, because a device with older data could overwrite newer changes.
+    await flushPendingQueue();
+    for (const [mapKey, {
+      collectionName,
+      item,
+      changedKeys
+    }] of Array.from(failedSavesRef.current.entries())) {
+      const ok = await fsSaveDocument(collectionName, item.id, item, changedKeys);
+      if (ok) failedSavesRef.current.delete(mapKey);else {
+        allOk = false;
+        console.error("Force save failed:", collectionName, item.id);
       }
     }
     // Wait for ALL pending writes to actually reach the server
@@ -11090,7 +11178,7 @@ function App() {
       }
     }
     showSaveStatus(allOk ? "saved" : "error");
-  }, [saveToLocalBackup]);
+  }, [saveToLocalBackup, flushPendingQueue]);
 
   // ─── Load/refresh data from Firestore ────
   const refreshFromFirestore = useCallback(async isInitial => {
@@ -11187,6 +11275,7 @@ function App() {
         if (backup && backup.length > 0) setAccountsState(backup);else setAccountsState(ACCOUNTS_DATA);
       }
       if (fsWorkOrders && fsWorkOrders.length > 0) {
+        fsWorkOrders = fsWorkOrders.map(withIntegrationDefaults);
         setWorkOrdersState(fsWorkOrders);
         workOrdersRef.current = fsWorkOrders;
         saveToLocalBackup(COLLECTIONS.workOrders, fsWorkOrders);

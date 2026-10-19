@@ -1,4 +1,4 @@
-const CACHE_NAME = 'bariline-crm-v4';
+const CACHE_NAME = 'bariline-crm-v5';
 const ASSETS = [
   './',
   './index.html',
