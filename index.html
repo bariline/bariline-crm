@@ -137,7 +137,7 @@ const FIREBASE_CONFIG = {
   appId: "1:1042161550667:web:61a07d439a34c4705b94ce"
 };
 
-const APP_VERSION = "2026-10-19-sec1";
+const APP_VERSION = "2026-10-19-sec2";
 // ─── Password hashing — passwords are never stored in plain text ────
 async function hashPassword(accountId, pw) {
   const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode("bariline-v1|" + String(accountId) + "|" + String(pw || "")));
@@ -5070,7 +5070,7 @@ const WorkOrdersPage = ({
         hour: "2-digit",
         minute: "2-digit"
       }),
-      by: wo.installerName || "מנהל",
+      by: role === "admin" ? "מנהל" : wo.installerName || "מנהל",
       ...extra
     }]
   });
