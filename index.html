@@ -11725,15 +11725,67 @@ function App() {
     return () => document.removeEventListener("visibilitychange", handleVisibility);
   }, [refreshFromFirestore]);
   const unreadCount = notifications.filter(n => !n.read).length;
+  // ─── Stay logged in on this device (30 days) — only the account id and a
+  // fingerprint of the password are kept, never the password itself ────
+  const SESSION_KEY = "bariline_session";
+  const SESSION_DAYS = 30;
+  const passFingerprint = async pw => {
+    try {
+      const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode("bariline|" + String(pw || "")));
+      return Array.from(new Uint8Array(buf)).slice(0, 8).map(b => b.toString(16).padStart(2, "0")).join("");
+    } catch (e) {
+      return "";
+    }
+  };
   const handleLogin = account => {
     setCurrentUser(account);
     setPage(account.role === "admin" ? "dashboard" : "orders");
+    passFingerprint(account.password).then(fp => {
+      try {
+        localStorage.setItem(SESSION_KEY, JSON.stringify({
+          id: account.id,
+          fp,
+          at: Date.now()
+        }));
+      } catch (e) {}
+    });
   };
   const handleLogout = () => {
     fsSaveUsageStats();
+    try {
+      localStorage.removeItem(SESSION_KEY);
+    } catch (e) {}
     setCurrentUser(null);
     setPage("dashboard");
   };
+  const sessionTriedRef = useRef(false);
+  useEffect(() => {
+    if (!dbReady || currentUser || sessionTriedRef.current || !Array.isArray(accounts) || accounts.length === 0) return;
+    sessionTriedRef.current = true;
+    let saved = null;
+    try {
+      saved = JSON.parse(localStorage.getItem(SESSION_KEY) || "null");
+    } catch (e) {}
+    if (!saved || !saved.id || !saved.at || Date.now() - saved.at > SESSION_DAYS * 86400000) return;
+    const acc = accounts.find(a => String(a.id) === String(saved.id));
+    if (!acc || acc.active === false) {
+      try {
+        localStorage.removeItem(SESSION_KEY);
+      } catch (e) {}
+      return;
+    }
+    passFingerprint(acc.password).then(fp => {
+      // password changed since login → ask to log in again
+      if (fp !== saved.fp) {
+        try {
+          localStorage.removeItem(SESSION_KEY);
+        } catch (e) {}
+        return;
+      }
+      setCurrentUser(acc);
+      setPage(acc.role === "admin" ? "dashboard" : "orders");
+    });
+  }, [dbReady, accounts, currentUser]);
   if (!dbReady) {
     return /*#__PURE__*/React.createElement("div", {
       dir: "rtl",
