@@ -59,6 +59,7 @@ var pdfUrl = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js'
 var pdfLibUrl = 'https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js';
 var firebaseAppUrl = 'https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js';
 var firebaseFirestoreUrl = 'https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js';
+var firebaseAuthUrl = 'https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js';
 
 async function loadReact() {
   for (var i = 0; i < cdns.length; i++) {
@@ -86,6 +87,30 @@ loadReact().then(async function(ok) {
     await loadScript(firebaseAppUrl);
     await loadScript(firebaseFirestoreUrl);
   } catch(e) { console.warn('Firebase failed to load, running in offline mode', e); }
+  // Database access requires a signed-in app session (security rules). The session is
+  // created silently in the background — users still log in with their username + password as before.
+  try {
+    await loadScript(firebaseAuthUrl);
+    if (!firebase.apps.length) firebase.initializeApp({
+      apiKey: "AIzaSyAXl5mtwMWkUkKqH6gdeYx-2SOcR58l5fk",
+      authDomain: "bariline-crm.firebaseapp.com",
+      projectId: "bariline-crm",
+      storageBucket: "bariline-crm.firebasestorage.app",
+      messagingSenderId: "1042161550667",
+      appId: "1:1042161550667:web:61a07d439a34c4705b94ce"
+    });
+    var auth = firebase.auth();
+    await Promise.race([
+      new Promise(function(res) {
+        var un = auth.onAuthStateChanged(function(u) {
+          un();
+          if (u) return res(u);
+          auth.signInAnonymously().then(function(c) { res(c.user); }).catch(function(e) { console.warn('[AUTH] anonymous sign-in failed', e && e.code); res(null); });
+        });
+      }),
+      new Promise(function(res) { setTimeout(res, 8000); })
+    ]);
+  } catch(e) { console.warn('[AUTH] not available', e); }
   initApp();
 });
 
@@ -111,6 +136,37 @@ const FIREBASE_CONFIG = {
   messagingSenderId: "1042161550667",
   appId: "1:1042161550667:web:61a07d439a34c4705b94ce"
 };
+
+const APP_VERSION = "2026-10-19-sec1";
+// ─── Password hashing — passwords are never stored in plain text ────
+async function hashPassword(accountId, pw) {
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode("bariline-v1|" + String(accountId) + "|" + String(pw || "")));
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, "0")).join("");
+}
+async function checkPassword(account, pw) {
+  if (account.passwordHash) return (await hashPassword(account.id, pw)) === account.passwordHash;
+  return typeof account.password === "string" && pw === account.password;
+}
+// Convert any plain-text password still in the database into a hash (one time per account)
+async function migratePasswordsToHash() {
+  const db = getDb();
+  if (!db || !window.crypto || !crypto.subtle) return;
+  try {
+    const snap = await db.collection("accounts").get();
+    for (const d of snap.docs) {
+      const a = d.data();
+      if (typeof a.password !== "string") continue;
+      const upd = {
+        password: firebase.firestore.FieldValue.delete()
+      };
+      if (!a.passwordHash) upd.passwordHash = await hashPassword(a.id, a.password);
+      await d.ref.update(upd);
+      usageCounters.writes++;
+    }
+  } catch (e) {
+    console.warn("[SECURITY] password migration skipped:", e && e.code);
+  }
+}
 
 // ─── IndexedDB for large blobs (warranty PDF template) ─────────────────────
 
@@ -2781,7 +2837,7 @@ const LoginScreen = ({
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [showPassword, setShowPassword] = useState(false);
-  const handleLogin = () => {
+  const handleLogin = async () => {
     if (!identifier.trim() || !password.trim()) {
       setError("יש למלא את כל השדות");
       return;
@@ -2813,7 +2869,7 @@ const LoginScreen = ({
       setError("החשבון אינו פעיל. פנה למנהל המערכת.");
       return;
     }
-    if (password !== account.password) {
+    if (!(await checkPassword(account, password))) {
       setError("סיסמה שגויה");
       return;
     }
@@ -9359,7 +9415,7 @@ const InventoryPage = () => {
       padding: "4px 0",
       borderBottom: i < moves.length - 1 ? `1px solid ${colors.border}` : "none"
     }
-  }, (m.at || "").slice(0, 16).replace("T", " "), " — ", h("b", null, m.qty > 0 ? "+" + m.qty : m.qty), " ", m.name, m.finish ? " (" + m.finish + ")" : "", " — ", m.reason, m.orderId ? " · " + m.orderId : ""))));
+  }, m.at ? new Date(m.at).toLocaleString("he-IL", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "", " — ", h("b", null, m.qty > 0 ? "+" + m.qty : m.qty), " ", m.name, m.finish ? " (" + m.finish + ")" : "", " — ", m.reason, m.orderId ? " · " + m.orderId : ""))));
 };
 
 // ─── Reports Page (Admin only) ───────────────────────────────────────────────
@@ -9831,7 +9887,6 @@ const AccountsPage = ({
       id: Math.max(...accounts.map(a => a.id), 0) + 1,
       phone: newAcc.phone,
       username: newAcc.username,
-      password: newAcc.password || "1234",
       name: newAcc.name,
       role: newAcc.role,
       installerId: installerId,
@@ -9839,12 +9894,16 @@ const AccountsPage = ({
       lastLogin: "—",
       createdAt: new Date().toISOString().slice(0, 10)
     };
-    setAccounts(prev => [...prev, acc]);
+    const initialPassword = newAcc.password || "1234";
+    hashPassword(acc.id, initialPassword).then(passwordHash => setAccounts(prev => [...prev, {
+      ...acc,
+      passwordHash
+    }]));
     setShowCreate(false);
     // Send login details via WhatsApp
     const loginUrl = "https://bariline.github.io/bariline-crm/";
     const roleLabel = acc.role === "admin" ? "מנהל" : "מתקין";
-    const waMessage = `שלום ${acc.name},\n\nנוצר עבורך חשבון ${roleLabel} במערכת Bariline CRM.\n\nפרטי התחברות:\nשם משתמש: ${acc.username}\nסיסמה: ${acc.password}\n\nקישור למערכת:\n${loginUrl}\n\nבהצלחה!`;
+    const waMessage = `שלום ${acc.name},\n\nנוצר עבורך חשבון ${roleLabel} במערכת Bariline CRM.\n\nפרטי התחברות:\nשם משתמש: ${acc.username}\nסיסמה: ${initialPassword}\n\nקישור למערכת:\n${loginUrl}\n\nבהצלחה!`;
     const phoneClean = acc.phone.replace(/[-\s]/g, "");
     const intlPhone = phoneClean.startsWith("0") ? "972" + phoneClean.slice(1) : phoneClean;
     window.open(`https://wa.me/${intlPhone}?text=${encodeURIComponent(waMessage)}`, "_blank");
@@ -9885,10 +9944,18 @@ const AccountsPage = ({
       setPassError("הסיסמאות אינן תואמות");
       return;
     }
-    setAccounts(prev => prev.map(a => a.id === changePassAccount.id ? {
-      ...a,
-      password: newPassword
-    } : a));
+    const accId = changePassAccount.id;
+    hashPassword(accId, newPassword).then(passwordHash => {
+      setAccounts(prev => prev.map(a => a.id === accId ? {
+        ...a,
+        passwordHash
+      } : a));
+      // make sure no old plain-text password is left in the database
+      const db = getDb();
+      if (db) db.collection("accounts").doc(String(accId)).update({
+        password: firebase.firestore.FieldValue.delete()
+      }).catch(() => {});
+    });
     setPassError("");
     setPassSuccess("הסיסמה שונתה בהצלחה!");
     setTimeout(() => {
@@ -12044,6 +12111,40 @@ function App() {
   // fingerprint of the password are kept, never the password itself ────
   const SESSION_KEY = "bariline_session";
   const SESSION_DAYS = 30;
+  // fingerprint is always taken from the password HASH, so it stays the same before/after migration
+  const credOf = async acc => acc.passwordHash || (typeof acc.password === "string" ? await hashPassword(acc.id, acc.password) : "");
+  const rememberSession = acc => {
+    credOf(acc).then(passFingerprint).then(fp => {
+      try {
+        localStorage.setItem(SESSION_KEY, JSON.stringify({
+          v: 2,
+          id: acc.id,
+          fp,
+          at: Date.now()
+        }));
+      } catch (e) {}
+    });
+  };
+  // Lets the office see that every device runs the current version (needed before tightening security)
+  const reportClient = acc => {
+    const db = getDb();
+    if (!db || !acc) return;
+    let uid = null;
+    try {
+      uid = firebase.auth && firebase.auth().currentUser ? firebase.auth().currentUser.uid : null;
+    } catch (e) {}
+    db.collection("_clients").doc(String(acc.id)).set({
+      accountId: acc.id,
+      name: acc.name || "",
+      role: acc.role || "",
+      version: APP_VERSION,
+      authUid: uid,
+      at: new Date().toISOString(),
+      ua: navigator.userAgent.slice(0, 120)
+    }, {
+      merge: true
+    }).catch(() => {});
+  };
   const passFingerprint = async pw => {
     try {
       const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode("bariline|" + String(pw || "")));
@@ -12055,15 +12156,8 @@ function App() {
   const handleLogin = account => {
     setCurrentUser(account);
     setPage(account.role === "admin" ? "dashboard" : "orders");
-    passFingerprint(account.password).then(fp => {
-      try {
-        localStorage.setItem(SESSION_KEY, JSON.stringify({
-          id: account.id,
-          fp,
-          at: Date.now()
-        }));
-      } catch (e) {}
-    });
+    rememberSession(account);
+    reportClient(account);
   };
   const handleLogout = () => {
     fsSaveUsageStats();
@@ -12089,9 +12183,10 @@ function App() {
       } catch (e) {}
       return;
     }
-    passFingerprint(acc.password).then(fp => {
+    credOf(acc).then(passFingerprint).then(fp => {
       // password changed since login → ask to log in again
-      if (fp !== saved.fp) {
+      // (sessions saved before passwords were hashed are accepted once and upgraded)
+      if (saved.v === 2 && fp !== saved.fp) {
         try {
           localStorage.removeItem(SESSION_KEY);
         } catch (e) {}
@@ -12099,8 +12194,14 @@ function App() {
       }
       setCurrentUser(acc);
       setPage(acc.role === "admin" ? "dashboard" : "orders");
+      rememberSession(acc);
+      reportClient(acc);
     });
   }, [dbReady, accounts, currentUser]);
+  // one-time: hash any plain-text passwords left in the database
+  useEffect(() => {
+    if (dbReady) migratePasswordsToHash();
+  }, [dbReady]);
   if (!dbReady) {
     return /*#__PURE__*/React.createElement("div", {
       dir: "rtl",
