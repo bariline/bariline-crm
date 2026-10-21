@@ -137,7 +137,7 @@ const FIREBASE_CONFIG = {
   appId: "1:1042161550667:web:61a07d439a34c4705b94ce"
 };
 
-const APP_VERSION = "2026-10-19-sec2";
+const APP_VERSION = "2026-10-21-madaf";
 // ─── Password hashing — passwords are never stored in plain text ────
 async function hashPassword(accountId, pw) {
   const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode("bariline-v1|" + String(accountId) + "|" + String(pw || "")));
@@ -8776,6 +8776,387 @@ const ServiceCallsPage = ({
 
 // ─── Customers Page (Admin only) ─────────────────────────────────────────────
 
+// ─── Quotes Waiting For Store Approval (filled by the Madaf sync) ───────────
+// madaf_sync.py writes `madafQuote` + `quoteStatus` on work orders:
+//   pending  — quote (הצעה) sent to the store, waiting for an answer
+//   approved — the quote was turned into a delivery note in Madaf; `readyToNotify` until the installer is told
+//   rejected — the quote was deleted in Madaf
+const QUOTE_WARN_DAYS = 3;
+const QUOTE_LATE_DAYS = 7;
+const QuotesPendingPage = ({
+  workOrders,
+  setWorkOrders,
+  installers
+}) => {
+  const isMobile = useIsMobile();
+  const [tab, setTab] = useState("pending");
+  const daysSince = d => {
+    if (!d) return 0;
+    const t = new Date();
+    t.setHours(0, 0, 0, 0);
+    return Math.max(0, Math.round((t - new Date(d + "T00:00:00")) / 86400000)); // local midnight, not UTC
+  };
+  const fmtDate = d => d ? d.slice(8, 10) + "/" + d.slice(5, 7) : "—";
+  const withQuote = workOrders.filter(w => w.madafQuote && w.quoteStatus);
+  const lists = {
+    pending: withQuote.filter(w => w.quoteStatus === "pending").sort((a, b) => daysSince(b.madafQuote.sentDate) - daysSince(a.madafQuote.sentDate)),
+    approved: withQuote.filter(w => w.quoteStatus === "approved" && w.readyToNotify),
+    rejected: withQuote.filter(w => w.quoteStatus === "rejected" && daysSince(w.madafQuote.rejectedDate) <= 30)
+  };
+  const tabs = [{
+    key: "pending",
+    label: "ממתינות לאישור החנות",
+    count: lists.pending.length
+  }, {
+    key: "approved",
+    label: "אושרו — לעדכן מתקין",
+    count: lists.approved.length
+  }, {
+    key: "rejected",
+    label: "נדחו (30 יום אחרונים)",
+    count: lists.rejected.length
+  }];
+  const openWhatsApp = (phone, message) => {
+    if (!phone) return;
+    const clean = phone.replace(/[-\s]/g, "");
+    const intl = clean.startsWith("0") ? "972" + clean.slice(1) : clean;
+    window.open(`https://wa.me/${intl}?text=${encodeURIComponent(message)}`, "_blank");
+  };
+  const addLog = (wo, action) => [...(wo.activityLog || []), {
+    action,
+    date: new Date().toISOString().split("T")[0],
+    time: new Date().toLocaleTimeString("he-IL", {
+      hour: "2-digit",
+      minute: "2-digit"
+    }),
+    by: "מנהל"
+  }];
+  const sendToInstaller = wo => {
+    const inst = installers.find(i => String(i.id) === String(wo.installerId));
+    if (inst) {
+      const waitGlass = wo.productType === "custom" && !wo.glassReady;
+      const msg = `שלום ${inst.name.trim()},\n\nהחנות אישרה את הצעת המחיר ✅\n\nלקוח: ${wo.customerName}\nטלפון: ${wo.customerPhone || "—"}\nכתובת: ${wo.address || "—"}\nמוצר: ${wo.product || "—"}\n\n${waitGlass ? "הזכוכית יוצאת לייצור — נעדכן כשתהיה מוכנה." : "העבודה מוכנה להתקנה — נא לתאם מועד עם הלקוח."}\n\nפרטים במערכת:\nhttps://bariline.github.io/bariline-crm/`;
+      openWhatsApp(inst.phone, msg);
+    }
+    setWorkOrders(prev => prev.map(w => w.id === wo.id ? {
+      ...w,
+      readyToNotify: false,
+      activityLog: addLog(w, inst ? `נשלחה הודעת אישור הצעה למתקין ${inst.name.trim()}` : "אישור ההצעה סומן כטופל")
+    } : w));
+  };
+  const remindStore = wo => {
+    const q = wo.madafQuote;
+    openWhatsApp(q.storePhone, `שלום,\nרצינו לבדוק לגבי הצעת מחיר מס' ${q.no} עבור הלקוח ${wo.customerName} (${q.amount ? Number(q.amount).toLocaleString("he-IL") + " ₪" : ""}).\nנשמח לאישור כדי שנתקדם לייצור/התקנה.\nתודה, בריליין`);
+    setWorkOrders(prev => prev.map(w => w.id === wo.id ? {
+      ...w,
+      madafQuote: {
+        ...w.madafQuote,
+        lastReminder: new Date().toISOString().split("T")[0]
+      },
+      activityLog: addLog(w, `נשלחה תזכורת לחנות על הצעה ${q.no}`)
+    } : w));
+  };
+  const renderCard = wo => {
+    const q = wo.madafQuote;
+    const days = daysSince(tab === "rejected" ? q.rejectedDate : q.sentDate);
+    const ageColor = tab !== "pending" ? colors.textLight : days >= QUOTE_LATE_DAYS ? colors.danger : days >= QUOTE_WARN_DAYS ? colors.warning : colors.success;
+    const line = (label, value) => value ? React.createElement("div", {
+      style: {
+        fontSize: 13,
+        color: colors.textLight,
+        marginTop: 4
+      }
+    }, label, ": ", React.createElement("span", {
+      style: {
+        color: colors.text
+      }
+    }, value)) : null;
+    return React.createElement(Card, {
+      key: wo.id,
+      style: {
+        borderRight: `4px solid ${ageColor}`,
+        padding: isMobile ? 14 : 18
+      }
+    }, React.createElement("div", {
+      style: {
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "flex-start",
+        gap: 10,
+        flexWrap: "wrap"
+      }
+    }, React.createElement("div", {
+      style: {
+        minWidth: 0
+      }
+    }, React.createElement("div", {
+      style: {
+        fontWeight: 700,
+        fontSize: 15
+      }
+    }, wo.customerName), React.createElement("div", {
+      style: {
+        fontSize: 12,
+        color: colors.textMuted,
+        marginTop: 2
+      }
+    }, wo.id, wo.address ? " · " + wo.address : "", wo.customerPhone ? " · " + wo.customerPhone : "")), React.createElement("span", {
+      style: {
+        padding: "4px 10px",
+        borderRadius: 8,
+        fontSize: 12,
+        fontWeight: 700,
+        whiteSpace: "nowrap",
+        background: ageColor + "1f",
+        color: ageColor
+      }
+    }, tab === "pending" ? days === 0 ? "נשלחה היום" : days === 1 ? "ממתינה יום אחד" : `ממתינה ${days} ימים` : tab === "approved" ? `אושרה ${fmtDate(q.approvedDate)}` : `נדחתה ${fmtDate(q.rejectedDate)}`)), line("חנות", q.store), line("הצעת מחיר", `${q.no}${q.amount ? " · " + Number(q.amount).toLocaleString("he-IL") + " ₪" : ""} · נשלחה ${fmtDate(q.sentDate)}`), line("פריטים", q.items), line("מתקין", wo.installerName || "לא משויך"), q.deliveryNo ? line("תעודת משלוח", String(q.deliveryNo)) : null, q.lastReminder ? line("תזכורת אחרונה", fmtDate(q.lastReminder)) : null, tab !== "rejected" && React.createElement("div", {
+      style: {
+        display: "flex",
+        gap: 8,
+        marginTop: 12,
+        flexWrap: "wrap"
+      }
+    }, tab === "pending" && React.createElement(Button, {
+      variant: days >= QUOTE_WARN_DAYS ? "primary" : "outline",
+      size: "sm",
+      onClick: () => remindStore(wo),
+      disabled: !q.storePhone
+    }, "תזכורת לחנות בוואטסאפ"), tab === "approved" && React.createElement(Button, {
+      variant: "success",
+      size: "sm",
+      onClick: () => sendToInstaller(wo)
+    }, wo.installerId ? "שלח למתקין בוואטסאפ" : "סמן כטופל")));
+  };
+  const list = lists[tab];
+  return React.createElement("div", null, React.createElement("div", {
+    style: {
+      marginBottom: 16
+    }
+  }, React.createElement("h2", {
+    style: {
+      margin: 0,
+      fontSize: 22,
+      fontWeight: 700
+    }
+  }, "הצעות מחיר ממתינות לאישור"), React.createElement("div", {
+    style: {
+      fontSize: 13,
+      color: colors.textLight,
+      marginTop: 4
+    }
+  }, "מתעדכן אוטומטית ממדף: הצעה חדשה מופיעה כאן, הפיכתה לתעודת משלוח = אישור, מחיקתה = דחייה")), React.createElement(TabBar, {
+    tabs: tabs,
+    active: tab,
+    onSelect: setTab
+  }), list.length === 0 ? React.createElement(Card, {
+    style: {
+      textAlign: "center",
+      color: colors.textMuted,
+      padding: 40
+    }
+  }, tab === "pending" ? "אין הצעות מחיר שממתינות לאישור" : tab === "approved" ? "אין אישורים שממתינים לעדכון מתקין" : "לא נדחו הצעות ב-30 הימים האחרונים") : React.createElement("div", {
+    style: {
+      display: "grid",
+      gridTemplateColumns: isMobile ? "1fr" : "repeat(auto-fill, minmax(340px, 1fr))",
+      gap: 12
+    }
+  }, list.map(renderCard)));
+};
+// ─── Store Supplies (delivery notes with no end customer, from the Madaf sync) ──
+// madaf_sync.py writes them to the `storeSupplies` collection. The office marks each one
+// "סופק"; it can be deleted only SUPPLY_DELETE_AFTER_DAYS days after it was supplied.
+const SUPPLY_DELETE_AFTER_DAYS = 7;
+const StoreSuppliesPage = ({
+  currentUser
+}) => {
+  const isMobile = useIsMobile();
+  const [supplies, setSupplies] = useState([]);
+  const [tab, setTab] = useState("pending");
+  const [busyId, setBusyId] = useState(null);
+  useEffect(() => {
+    const db = getDb();
+    if (!db) return;
+    return db.collection("storeSupplies").onSnapshot(s => setSupplies(s.docs.map(d => d.data())), e => console.warn("storeSupplies", e));
+  }, []);
+  const todayStr = () => new Date().toLocaleDateString("sv-SE");
+  const daysSince = d => d ? Math.max(0, Math.round((new Date(todayStr() + "T00:00:00") - new Date(d + "T00:00:00")) / 86400000)) : 0;
+  const fmtDate = d => {
+    if (!d) return "—";
+    const iso = d.length === 8 ? `${d.slice(0, 4)}-${d.slice(4, 6)}-${d.slice(6, 8)}` : d; // Madaf dates are YYYYMMDD
+    return iso.slice(8, 10) + "/" + iso.slice(5, 7) + "/" + iso.slice(2, 4);
+  };
+  const lists = {
+    pending: supplies.filter(s => s.status !== "delivered").sort((a, b) => (a.date || "") < (b.date || "") ? -1 : 1),
+    delivered: supplies.filter(s => s.status === "delivered").sort((a, b) => (a.deliveredDate || "") > (b.deliveredDate || "") ? -1 : 1)
+  };
+  const update = async (s, fields) => {
+    const db = getDb();
+    if (!db) return;
+    setBusyId(s.id);
+    try {
+      await db.collection("storeSupplies").doc(s.id).set(fields, {
+        merge: true
+      });
+    } catch (e) {
+      alert("השמירה נכשלה — נסו שוב");
+      console.error("storeSupplies save", e);
+    }
+    setBusyId(null);
+  };
+  const markDelivered = s => update(s, {
+    status: "delivered",
+    deliveredDate: todayStr(),
+    deliveredBy: currentUser?.name || "מנהל"
+  });
+  const undoDelivered = s => update(s, {
+    status: "pending",
+    deliveredDate: null,
+    deliveredBy: null
+  });
+  const remove = async s => {
+    if (daysSince(s.deliveredDate) < SUPPLY_DELETE_AFTER_DAYS) return;
+    if (!confirm(`למחוק את אספקה ${s.deliveryNo} ל${s.store}?`)) return;
+    setBusyId(s.id);
+    await fsDeleteDocument("storeSupplies", s.id); // keeps a copy in _trash
+    setBusyId(null);
+  };
+  const renderCard = s => {
+    const delivered = s.status === "delivered";
+    const left = SUPPLY_DELETE_AFTER_DAYS - daysSince(s.deliveredDate);
+    return React.createElement(Card, {
+      key: s.id,
+      style: {
+        borderRight: `4px solid ${delivered ? colors.success : colors.warning}`,
+        padding: isMobile ? 14 : 18,
+        opacity: busyId === s.id ? 0.6 : 1
+      }
+    }, React.createElement("div", {
+      style: {
+        display: "flex",
+        justifyContent: "space-between",
+        gap: 10,
+        flexWrap: "wrap"
+      }
+    }, React.createElement("div", null, React.createElement("div", {
+      style: {
+        fontWeight: 700,
+        fontSize: 15
+      }
+    }, s.store), React.createElement("div", {
+      style: {
+        fontSize: 12,
+        color: colors.textMuted,
+        marginTop: 2
+      }
+    }, "תעודת משלוח ", s.deliveryNo, " · ", fmtDate(s.date), s.storePhone ? " · " + s.storePhone : "")), React.createElement("span", {
+      style: {
+        padding: "4px 10px",
+        borderRadius: 8,
+        fontSize: 12,
+        fontWeight: 700,
+        whiteSpace: "nowrap",
+        alignSelf: "flex-start",
+        background: (delivered ? colors.success : colors.warning) + "1f",
+        color: delivered ? colors.successDark : "#d97706"
+      }
+    }, delivered ? `סופק ${fmtDate(s.deliveredDate)}` : "ממתין לאספקה")), React.createElement("ul", {
+      style: {
+        margin: "10px 0 0",
+        paddingRight: 18,
+        fontSize: 13,
+        color: colors.text
+      }
+    }, (s.items || []).map((it, i) => React.createElement("li", {
+      key: i,
+      style: {
+        marginTop: 2
+      }
+    }, it))), s.notes ? React.createElement("div", {
+      style: {
+        fontSize: 12,
+        color: colors.textLight,
+        marginTop: 6
+      }
+    }, s.notes) : null, delivered && s.deliveredBy ? React.createElement("div", {
+      style: {
+        fontSize: 12,
+        color: colors.textLight,
+        marginTop: 6
+      }
+    }, "סומן ע״י ", s.deliveredBy) : null, React.createElement("div", {
+      style: {
+        display: "flex",
+        gap: 8,
+        marginTop: 12,
+        flexWrap: "wrap",
+        alignItems: "center"
+      }
+    }, !delivered && React.createElement(Button, {
+      variant: "success",
+      size: "sm",
+      disabled: busyId === s.id,
+      onClick: () => markDelivered(s)
+    }, "סופק ✓"), delivered && React.createElement(Button, {
+      variant: "outline",
+      size: "sm",
+      disabled: busyId === s.id,
+      onClick: () => undoDelivered(s)
+    }, "בטל סימון"), delivered && React.createElement(Button, {
+      variant: left > 0 ? "outline" : "danger",
+      size: "sm",
+      disabled: left > 0 || busyId === s.id,
+      onClick: () => remove(s)
+    }, "מחק"), delivered && left > 0 && React.createElement("span", {
+      style: {
+        fontSize: 12,
+        color: colors.textMuted
+      }
+    }, left === 1 ? "ניתן למחוק מחר" : `ניתן למחוק בעוד ${left} ימים`)));
+  };
+  const list = lists[tab];
+  return React.createElement("div", null, React.createElement("div", {
+    style: {
+      marginBottom: 16
+    }
+  }, React.createElement("h2", {
+    style: {
+      margin: 0,
+      fontSize: 22,
+      fontWeight: 700
+    }
+  }, "אספקה לחנויות"), React.createElement("div", {
+    style: {
+      fontSize: 13,
+      color: colors.textLight,
+      marginTop: 4
+    }
+  }, "תעודות משלוח ממדף ללא לקוח קצה. סמנו \"סופק\" כשהסחורה נמסרה; מחיקה אפשרית ", SUPPLY_DELETE_AFTER_DAYS, " ימים אחרי האספקה")), React.createElement(TabBar, {
+    tabs: [{
+      key: "pending",
+      label: "ממתין לאספקה",
+      count: lists.pending.length
+    }, {
+      key: "delivered",
+      label: "סופק",
+      count: lists.delivered.length
+    }],
+    active: tab,
+    onSelect: setTab
+  }), list.length === 0 ? React.createElement(Card, {
+    style: {
+      textAlign: "center",
+      color: colors.textMuted,
+      padding: 40
+    }
+  }, tab === "pending" ? "אין אספקות שממתינות" : "אין אספקות שסופקו") : React.createElement("div", {
+    style: {
+      display: "grid",
+      gridTemplateColumns: isMobile ? "1fr" : "repeat(auto-fill, minmax(320px, 1fr))",
+      gap: 12
+    }
+  }, list.map(renderCard)));
+};
 const CustomersPage = ({
   workOrders
 }) => {
@@ -12267,6 +12648,14 @@ function App() {
     label: "ממתין לזכוכית",
     icon: Icons.glass
   }, {
+    key: "quotes",
+    label: "הצעות מחיר ממתינות",
+    icon: Icons.reports
+  }, {
+    key: "supplies",
+    label: "אספקה לחנויות",
+    icon: Icons.inventory
+  }, {
     key: "inventory",
     label: "מלאי",
     icon: Icons.inventory
@@ -12363,6 +12752,16 @@ function App() {
           setWarrantyPdf: setWarrantyPdf,
           serviceCalls: serviceCalls,
           initialFilter: "waiting_glass_nav"
+        });
+      case "quotes":
+        return /*#__PURE__*/React.createElement(QuotesPendingPage, {
+          workOrders: workOrders,
+          setWorkOrders: setWorkOrders,
+          installers: installers
+        });
+      case "supplies":
+        return /*#__PURE__*/React.createElement(StoreSuppliesPage, {
+          currentUser: currentUser
         });
       case "customers":
         return /*#__PURE__*/React.createElement(CustomersPage, {
