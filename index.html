@@ -137,7 +137,7 @@ const FIREBASE_CONFIG = {
   appId: "1:1042161550667:web:61a07d439a34c4705b94ce"
 };
 
-const APP_VERSION = "2026-11-02-stock-profit";
+const APP_VERSION = "2026-11-02-madaf-items";
 // ─── Password hashing — passwords are never stored in plain text ────
 async function hashPassword(accountId, pw) {
   const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode("bariline-v1|" + String(accountId) + "|" + String(pw || "")));
@@ -9809,6 +9809,92 @@ const ContainersPanel = ({ containers }) => {
       })));
 };
 
+// ─── Madaf product list (_meta/madafItems, written by madaf_sync.py) ─────────
+// The office says once, per Madaf product, where its cost comes from. Delivery-note lines that use the
+// product as-is then get their cost (and leave stock) automatically.
+const MadafItemsPanel = () => {
+  const h = React.createElement;
+  const [catalog, setCatalog] = useState(null);
+  const [partMap, setPartMap] = useState({});
+  const [stockItems, setStockItems] = useState([]);
+  const [search, setSearch] = useState("");
+  const [onlyOpen, setOnlyOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    const db = getDb();
+    if (!db) return;
+    const u1 = db.collection("_meta").doc("madafItems").onSnapshot(d => setCatalog(d.exists ? d.data() : { items: {} }), e => console.warn("madafItems", e));
+    const u2 = db.collection("_meta").doc("madafPartMap").onSnapshot(d => setPartMap(d.exists && d.data().map || {}), e => console.warn("madafPartMap", e));
+    const u3 = db.collection("stockItems").where("kind", "==", "model").onSnapshot(s => setStockItems(s.docs.map(d => d.data())), e => console.warn("stockItems", e));
+    return () => {
+      u1();
+      u2();
+      u3();
+    };
+  }, []);
+  const items = Object.entries(catalog && catalog.items || {}).map(([part, it]) => ({ part, ...it, key: deliveryItemKey({ part }) }))
+    .sort((a, b) => Number(a.part) - Number(b.part) || a.part.localeCompare(b.part));
+  const shown = items.filter(it => (!search || (it.part + " " + it.name).includes(search)) && (!onlyOpen || !partMap[it.key]));
+  const done = items.filter(it => partMap[it.key]).length;
+  const choose = async (it, choice) => {
+    const ref = getDb().collection("_meta").doc("madafPartMap");
+    setBusy(true);
+    try {
+      if (choice === MANUAL_COST) {
+        const prev = partMap[it.key];
+        const v = prompt(`עלות ליחידה (₪, לפני מע"מ) עבור:\n${it.name}`, String(prev && prev.lastCost != null ? prev.lastCost : ""));
+        if (v === null || isNaN(Number(v))) return;
+        await ref.set({ map: { [it.key]: { mode: "manual", lastCost: Number(v), desc: it.name } } }, { merge: true });
+      } else if (choice === PRODUCTION_COST) {
+        await ref.set({ map: { [it.key]: { mode: "production", desc: it.name } } }, { merge: true });
+      } else if (choice === NO_COST) {
+        await ref.set({ map: { [it.key]: { mode: "none", desc: it.name } } }, { merge: true });
+      } else if (choice) {
+        const t = stockItems.find(i => i.id === choice);
+        if (!t) return;
+        await ref.set({ map: { [it.key]: { mode: "stock", stockItemId: t.id, name: t.name, finish: t.finish || "", desc: it.name } } }, { merge: true });
+      } else {
+        await ref.set({ map: { [it.key]: firebase.firestore.FieldValue.delete() } }, { merge: true });
+      }
+    } catch (e) {
+      console.error("madaf item", e);
+      alert("השמירה נכשלה — נסה שוב");
+    } finally {
+      setBusy(false);
+    }
+  };
+  const cell = { padding: "6px 8px", textAlign: "right", verticalAlign: "middle" };
+  const th = { ...cell, fontWeight: 600, color: colors.textLight, fontSize: 12, background: colors.bg };
+  const sortedStock = stockItems.slice().sort((a, b) => (a.name + a.finish).localeCompare(b.name + b.finish, "he"));
+  if (!catalog) return h("div", { style: { padding: 20, color: colors.textMuted } }, "טוען...");
+  if (!items.length) return h(Card, { style: { padding: 20, color: colors.textMuted, fontSize: 13 } }, "רשימת הפריטים ממדף עוד לא הועלתה ל-CRM.");
+  return h("div", null,
+    h("p", { style: { margin: "0 0 10px", fontSize: 13, color: colors.textLight } },
+      "לכל פריט ממדף בוחרים פעם אחת מאיפה העלות שלו. כשפריט מופיע בתעודת משלוח בדיוק כמו ברשימה — העלות נכנסת לדוח הרווחיות אוטומטית, ומקלחון מהמלאי יורד מהמלאי. ",
+      "שורות שהטקסט שלהן שונה מהרשימה או שנכתבו ידנית — נבחרות בדוח עצמו. ",
+      "המחיר ללקוח תמיד נלקח מתעודת המשלוח עצמה. ",
+      h("b", null, `${done} מתוך ${items.length} פריטים מסומנים`), catalog.updatedAt ? ` · רשימה ממדף מ-${new Date(catalog.updatedAt).toLocaleDateString("he-IL")}` : ""),
+    h("div", { style: { display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginBottom: 10 } },
+      h(SearchBar, { value: search, onChange: setSearch, placeholder: "חיפוש לפי שם או מספר פריט" }),
+      h("label", { style: { display: "flex", gap: 6, fontSize: 13, alignItems: "center" } },
+        h("input", { type: "checkbox", checked: onlyOpen, onChange: e => setOnlyOpen(e.target.checked) }), "רק פריטים שלא סומנו")),
+    h(Card, { style: { padding: 0, overflowX: "auto" } }, h("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: 13 } },
+      h("thead", null, h("tr", null, ["פריט", "שם במדף", "מקור העלות"].map(t => h("th", { key: t, style: th }, t)))),
+      h("tbody", null, shown.map(it => {
+        const m = partMap[it.key];
+        const current = !m ? "" : m.mode === "stock" ? m.stockItemId : m.mode === "none" ? NO_COST : m.mode === "production" ? PRODUCTION_COST : MANUAL_COST;
+        return h("tr", { key: it.part, style: { borderBottom: `1px solid ${colors.border}`, background: m ? "transparent" : colors.warningLight + "30" } },
+          h("td", { style: { ...cell, color: colors.textMuted } }, it.part),
+          h("td", { style: { ...cell, fontWeight: 600 } }, it.name),
+          h("td", { style: cell }, h("select", { value: current, disabled: busy, onChange: e => choose(it, e.target.value), style: { ...inputStyle, minWidth: 240, padding: "4px 6px" } },
+            h("option", { value: "" }, "— לא סומן —"),
+            h("option", { value: PRODUCTION_COST }, "ייצור מיוחד — עלות מהשרטוט"),
+            h("option", { value: MANUAL_COST }, m && m.mode === "manual" ? `עלות קבועה: ${fmtILS(m.lastCost)}` : "עלות קבועה (ידנית)"),
+            h("option", { value: NO_COST }, "ללא עלות (שירות / לא מוצר)"),
+            h("optgroup", { label: "מקלחון מהמלאי (לפי מחיר המכולה)" }, sortedStock.map(i => h("option", { key: i.id, value: i.id }, `${i.name}${i.finish ? " · " + i.finish : ""}`))))));
+      })))));
+};
+
 const InventoryPage = () => {
   const h = React.createElement;
   const [items, setItems] = useState([]);
@@ -9931,7 +10017,7 @@ const InventoryPage = () => {
       color: colors.danger,
       fontWeight: 700
     }
-  }, negative.length, " פריטים במינוס — כדאי לעשות ספירה."))), tab !== "containers" && h(Button, {
+  }, negative.length, " פריטים במינוס — כדאי לעשות ספירה."))), !["containers", "madaf"].includes(tab) && h(Button, {
     onClick: () => setForm({
       kind: tab,
       name: "",
@@ -9958,13 +10044,17 @@ const InventoryPage = () => {
     size: "sm",
     variant: tab === "containers" ? "primary" : "outline",
     onClick: () => setTab("containers")
-  }, "מכולות ומחירים"), tab !== "containers" && h(SearchBar, {
+  }, "מכולות ומחירים"), h(Button, {
+    size: "sm",
+    variant: tab === "madaf" ? "primary" : "outline",
+    onClick: () => setTab("madaf")
+  }, "פריטי מדף"), !["containers", "madaf"].includes(tab) && h(SearchBar, {
     value: search,
     onChange: setSearch,
     placeholder: "חיפוש..."
   })), tab === "containers" ? h(ContainersPanel, {
     containers
-  }) : form && h(Card, {
+  }) : tab === "madaf" ? h(MadafItemsPanel) : form && h(Card, {
     style: {
       marginBottom: 12,
       display: "flex",
@@ -10068,7 +10158,7 @@ const InventoryPage = () => {
     size: "sm",
     variant: "outline",
     onClick: () => setForm(null)
-  }, "ביטול")), tab !== "containers" && h(Card, {
+  }, "ביטול")), !["containers", "madaf"].includes(tab) && h(Card, {
     style: {
       padding: 0,
       overflow: "auto"
@@ -10210,6 +10300,36 @@ const InventoryPage = () => {
 // remembered (_meta/madafPartMap), so the next delivery note with the same item is costed automatically.
 const MANUAL_COST = "__manual__";
 const NO_COST = "__none__"; // service / note line with a price (e.g. installation) — not a product
+const PRODUCTION_COST = "__production__"; // custom work: cost = the job's drawings, once the admin confirmed the measurement
+const deliveryItemKey = l => "item:" + String(l.part || "").replace(/[.\/\[\]*~`]/g, "_");
+// Which saved choice applies to a delivery line. A line picked from Madaf's product list as-is uses the
+// choice for that product; a hand-written or edited line uses the choice for its exact text. An edited line
+// only gets the product's choice as a suggestion (the edit often changes the size or the color).
+function lineMapping(l, partMap) {
+  const byItem = partMap[deliveryItemKey(l)],
+    byText = partMap[deliveryPartKey(l)];
+  if (l.exact && byItem) return { ...byItem, via: "item" };
+  if (byText) return { ...byText, via: "text" };
+  if (byItem && l.catalogName) return { ...byItem, via: "suggest" };
+  return null;
+}
+const lineSaveKey = l => l.exact ? deliveryItemKey(l) : deliveryPartKey(l);
+// Was the line picked from Madaf's product list as-is? (list = _meta/madafItems; spaces don't count)
+const normItemText = t => String(t || "").replace(/\s+/g, " ").trim();
+function withCatalog(lines, catalog) {
+  return (lines || []).map(l => {
+    const it = catalog && catalog[l.part];
+    if (!it) return l;
+    return { ...l, catalogName: it.name, exact: normItemText(l.desc) === normItemText(it.name) };
+  });
+}
+// Production cost of a custom job = the total of its saved drawings ("עלויות" in the drawing module)
+function jobProductionCost(job) {
+  const items = job && job.drawing && Array.isArray(job.drawing.items) ? job.drawing.items.filter(i => i && i.cost) : [];
+  if (!items.length) return { status: "nodrawing" };
+  if (!job.measurementConfirmed) return { status: "waiting" };
+  return { status: "ok", cost: items.reduce((s, i) => s + (Number(i.cost.total) || 0), 0), partial: items.some(i => i.cost.missing) };
+}
 // Delivery notes to stores (no end customer) are sales too — shown and taken from stock like jobs
 const supplyAsJob = s => ({ id: s.id, customerName: s.store, madafDelivery: s.madafDelivery, status: s.status === "pending" ? "pending" : "completed", isSupply: true });
 const deliveryPartKey = l => (String(l.part || "") + "|" + String(l.desc || "").trim()).replace(/[.\/\[\]*~`]/g, "_").slice(0, 400);
@@ -10226,6 +10346,17 @@ async function takeDeliveryLine(job, idx, line, target) {
   const no = String(job.madafDelivery.no);
   const ref = db.collection("deliveryCosts").doc(no);
   const qty = Number(line.qty) || 1;
+  // Delivery notes from before the first container was received: those units never were in the CRM stock,
+  // so only price them (container average) without taking them out of stock
+  const cs = (await db.collection("containers").where("stockAdded", "==", true).get()).docs.map(d => d.data());
+  const start = cs.map(c => String(c.receivedAt || "").slice(0, 10)).filter(Boolean).sort()[0];
+  if (!start || madafDate(job.madafDelivery.date) < start) {
+    const a = containerAverages(cs).byItem[target.id];
+    const unit = a ? a.stockQty ? a.stockAvg : a.avg : null;
+    await ref.set({ deliveryNo: job.madafDelivery.no, jobId: job.id, updatedAt: new Date().toISOString(),
+      lines: { [idx]: { key: lineSaveKey(line), mode: "stock", stockItemId: target.id, name: target.name, finish: target.finish || "", qty, taken: false, unitCost: unit == null ? null : round2(unit) } } }, { merge: true });
+    return;
+  }
   const claimed = await db.runTransaction(async t => {
     const d = await t.get(ref);
     const prev = d.exists && d.data().lines && d.data().lines[idx];
@@ -10233,7 +10364,7 @@ async function takeDeliveryLine(job, idx, line, target) {
     t.set(ref, {
       deliveryNo: job.madafDelivery.no,
       jobId: job.id,
-      lines: { [idx]: { key: deliveryPartKey(line), mode: "stock", stockItemId: target.id, name: target.name, finish: target.finish || "", qty, taken: true, unitCost: null } },
+      lines: { [idx]: { key: lineSaveKey(line), mode: "stock", stockItemId: target.id, name: target.name, finish: target.finish || "", qty, taken: true, unitCost: null } },
       updatedAt: new Date().toISOString()
     }, { merge: true });
     return true;
@@ -10263,9 +10394,9 @@ async function runDeliveryStock(jobs, partMap, costs, stockItems) {
     for (let idx = 0; idx < d.lines.length; idx++) {
       const line = d.lines[idx];
       const k = d.no + ":" + idx;
-      const m = partMap[deliveryPartKey(line)];
+      const m = lineMapping(line, partMap);
       const entry = costs[String(d.no)] && costs[String(d.no)].lines && costs[String(d.no)].lines[idx];
-      if (deliveryStockDone.has(k) || entry || !m || m.mode !== "stock") continue;
+      if (deliveryStockDone.has(k) || entry || !m || m.via === "suggest" || m.mode !== "stock") continue;
       const target = stockItems.find(i => i.id === m.stockItemId);
       if (!target) continue;
       deliveryStockDone.add(k);
@@ -10287,9 +10418,15 @@ async function autoDeliveryStock(workOrders) {
   const mapDoc = await db.collection("_meta").doc("madafPartMap").get();
   const partMap = mapDoc.exists && mapDoc.data().map || {};
   if (!Object.values(partMap).some(m => m && m.mode === "stock")) return;
+  const catDoc = await db.collection("_meta").doc("madafItems").get();
+  const catalog = catDoc.exists && catDoc.data().items || {};
   const supplies = (await db.collection("storeSupplies").get()).docs.map(d => d.data()).filter(s => s.madafDelivery).map(supplyAsJob);
-  const jobs = workOrders.filter(w => w.madafDelivery && w.madafDelivery.no).concat(supplies);
-  const pending = jobs.filter(j => (j.madafDelivery.lines || []).some((l, idx) => !deliveryStockDone.has(j.madafDelivery.no + ":" + idx) && partMap[deliveryPartKey(l)] && partMap[deliveryPartKey(l)].mode === "stock"));
+  const jobs = workOrders.filter(w => w.madafDelivery && w.madafDelivery.no).concat(supplies)
+    .map(j => ({ ...j, madafDelivery: { ...j.madafDelivery, lines: withCatalog(j.madafDelivery.lines, catalog) } }));
+  const pending = jobs.filter(j => (j.madafDelivery.lines || []).some((l, idx) => {
+    const m = lineMapping(l, partMap);
+    return !deliveryStockDone.has(j.madafDelivery.no + ":" + idx) && m && m.via !== "suggest" && m.mode === "stock";
+  }));
   if (!pending.length) return;
   const stockItems = (await db.collection("stockItems").where("kind", "==", "model").get()).docs.map(d => d.data());
   const costs = {};
@@ -10315,6 +10452,7 @@ const ProfitReport = ({ workOrders, installers }) => {
   const [partMap, setPartMap] = useState({});
   const [stockItems, setStockItems] = useState([]);
   const [supplies, setSupplies] = useState([]);
+  const [catalog, setCatalog] = useState({});
   const [open, setOpen] = useState(null);
   const [busy, setBusy] = useState(false);
   useEffect(() => {
@@ -10328,15 +10466,18 @@ const ProfitReport = ({ workOrders, installers }) => {
     const u2 = db.collection("_meta").doc("madafPartMap").onSnapshot(d => setPartMap(d.exists && d.data().map || {}), e => console.warn("madafPartMap", e));
     const u3 = db.collection("stockItems").where("kind", "==", "model").onSnapshot(s => setStockItems(s.docs.map(d => d.data())), e => console.warn("stockItems", e));
     const u4 = db.collection("storeSupplies").onSnapshot(s => setSupplies(s.docs.map(d => d.data())), e => console.warn("storeSupplies", e));
+    const u5 = db.collection("_meta").doc("madafItems").onSnapshot(d => setCatalog(d.exists && d.data().items || {}), e => console.warn("madafItems", e));
     return () => {
       u1();
       u2();
       u3();
       u4();
+      u5();
     };
   }, []);
   const jobs = useMemo(() => workOrders.filter(w => w.madafDelivery && w.madafDelivery.no)
-    .concat(supplies.filter(s => s.madafDelivery && s.madafDelivery.no).map(supplyAsJob)), [workOrders, supplies]);
+    .concat(supplies.filter(s => s.madafDelivery && s.madafDelivery.no).map(supplyAsJob))
+    .map(j => ({ ...j, madafDelivery: { ...j.madafDelivery, lines: withCatalog(j.madafDelivery.lines, catalog) } })), [workOrders, supplies, catalog]);
   useEffect(() => {
     if (stockItems.length && Object.keys(partMap).length) runDeliveryStock(jobs, partMap, costs, stockItems);
   }, [jobs, partMap, costs, stockItems]);
@@ -10345,15 +10486,25 @@ const ProfitReport = ({ workOrders, installers }) => {
     const c = costs[String(d.no)] || {};
     const lines = (d.lines || []).map((l, idx) => {
       const entry = c.lines && c.lines[idx];
-      const mapping = partMap[deliveryPartKey(l)];
-      return { ...l, idx, entry, mapping, cost: deliveryLineCost(l, entry, mapping) };
+      const found = lineMapping(l, partMap);
+      const mapping = found && found.via !== "suggest" ? found : null;
+      const suggestion = found && found.via === "suggest" ? found : null;
+      // Nothing chosen yet on a custom job → its cost comes from the drawings
+      const production = entry ? entry.mode === "production" : mapping ? mapping.mode === "production" : !w.isSupply && w.productType === "custom";
+      return { ...l, idx, entry, mapping, suggestion, production, cost: production ? null : deliveryLineCost(l, entry, mapping) };
     });
-    const known = lines.filter(l => l.cost != null);
-    const cost = known.reduce((s, l) => s + l.cost, 0);
+    const pc = lines.some(l => l.production) ? jobProductionCost(w) : null;
+    const known = lines.filter(l => !l.production && l.cost != null);
+    let cost = known.reduce((s, l) => s + l.cost, 0);
+    let missing = lines.filter(l => !l.production && l.cost == null).length;
+    if (pc) {
+      if (pc.status === "ok") cost += pc.cost;
+      else missing += 1;
+    }
     const price = Number(d.preVat) || 0;
     const inst = installers.find(i => i.id === w.installerId);
-    return { job: w, d, lines, price, cost, profit: price - cost, pct: price ? (price - cost) / price * 100 : 0,
-      missing: lines.length - known.length, installer: inst ? inst.name : w.installerName || "" };
+    return { job: w, d, lines, pc, price, cost, profit: price - cost, pct: price ? (price - cost) / price * 100 : 0,
+      missing, installer: inst ? inst.name : w.installerName || "" };
   }).sort((a, b) => String(a.d.date).localeCompare(String(b.d.date)) || a.d.no - b.d.no);
   const tot = rows.reduce((t, r) => ({ price: t.price + r.price, cost: t.cost + r.cost, missing: t.missing + (r.missing ? 1 : 0) }), { price: 0, cost: 0, missing: 0 });
   // Profit only counts delivery notes whose costs are complete — otherwise it would look higher than it is
@@ -10367,7 +10518,7 @@ const ProfitReport = ({ workOrders, installers }) => {
     setBusy(true);
     try {
       const db = getDb();
-      const key = deliveryPartKey(l);
+      const key = lineSaveKey(l);
       let v = null;
       if (choice === MANUAL_COST) {
         const last = l.mapping && l.mapping.lastCost != null ? l.mapping.lastCost : "";
@@ -10376,7 +10527,10 @@ const ProfitReport = ({ workOrders, installers }) => {
       }
       // Units taken from stock for the old choice go back into stock
       if (l.entry && l.entry.mode === "stock" && l.entry.taken && l.entry.stockItemId !== choice) await returnDeliveryLine(r.job, l.idx, l.entry);
-      if (choice === NO_COST) {
+      if (choice === PRODUCTION_COST) {
+        await db.collection("deliveryCosts").doc(String(r.d.no)).set({ deliveryNo: r.d.no, jobId: r.job.id, lines: { [l.idx]: { key, mode: "production" } }, updatedAt: new Date().toISOString() }, { merge: true });
+        await db.collection("_meta").doc("madafPartMap").set({ map: { [key]: { mode: "production", desc: l.desc } } }, { merge: true });
+      } else if (choice === NO_COST) {
         await db.collection("deliveryCosts").doc(String(r.d.no)).set({ deliveryNo: r.d.no, jobId: r.job.id, lines: { [l.idx]: { key, mode: "none", unitCost: 0 } }, updatedAt: new Date().toISOString() }, { merge: true });
         await db.collection("_meta").doc("madafPartMap").set({ map: { [key]: { mode: "none", desc: l.desc } } }, { merge: true });
       } else if (choice === MANUAL_COST) {
@@ -10401,7 +10555,7 @@ const ProfitReport = ({ workOrders, installers }) => {
   const editManual = async (r, l) => {
     const v = prompt(`עלות ליחידה (₪, לפני מע"מ) עבור:\n${l.desc}`, String(l.entry && l.entry.unitCost != null ? l.entry.unitCost : l.mapping && l.mapping.lastCost || ""));
     if (v === null || isNaN(Number(v))) return;
-    const key = deliveryPartKey(l);
+    const key = lineSaveKey(l);
     await getDb().collection("deliveryCosts").doc(String(r.d.no)).set({ deliveryNo: r.d.no, jobId: r.job.id, lines: { [l.idx]: { key, mode: "manual", unitCost: Number(v) } }, updatedAt: new Date().toISOString() }, { merge: true });
     await getDb().collection("_meta").doc("madafPartMap").set({ map: { [key]: { mode: "manual", lastCost: Number(v), desc: l.desc } } }, { merge: true });
   };
@@ -10447,7 +10601,7 @@ const ProfitReport = ({ workOrders, installers }) => {
       stat(tot.missing ? `רווח (${full.length} תעודות עם עלות מלאה)` : "רווח", full.length ? fmtILS(totProfit) : "—", totProfit >= 0 ? colors.success : colors.danger),
       stat(tot.missing ? `אחוז רווח (${full.length} תעודות)` : "אחוז רווח", fullPrice ? totPct.toFixed(1) + "%" : "—", pctColor(totPct))),
     tot.missing > 0 && h("div", { style: { background: colors.warningLight || "#fff4e0", color: colors.text, padding: "8px 12px", borderRadius: 8, fontSize: 13, marginBottom: 12 } },
-      `ב-${tot.missing} תעודות חסרה עלות לחלק מהפריטים. לחץ על השורה ובחר לכל פריט: מקלחון מהמלאי, או "ייצור מיוחד" עם עלות. הבחירה נזכרת לפעם הבאה.`),
+      `ב-${tot.missing} תעודות חסרה עלות. לחץ על השורה ובחר לכל פריט: מקלחון מהמלאי, "ייצור מיוחד" (עלות מהשרטוט — נכנסת אחרי אישור מדידה), עלות ידנית או ללא עלות. אפשר גם לסמן מראש את כל הפריטים במלאי → "פריטי מדף".`),
     h(Card, { style: { padding: 0, overflowX: "auto" } }, rows.length === 0 ? h("div", { style: { padding: 24, textAlign: "center", color: colors.textMuted, fontSize: 13 } }, "אין תעודות משלוח בחודש הזה.") :
       h("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: 13 } },
         h("thead", null, h("tr", null, ["תאריך", "ת. משלוח", "לקוח", "חנות", "מתקין", "סטטוס", "מחיר", "עלות", "רווח", "% רווח"].map(t => h("th", { key: t, style: th }, t)))),
@@ -10464,18 +10618,24 @@ const ProfitReport = ({ workOrders, installers }) => {
             h("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: 12 } },
               h("thead", null, h("tr", null, ["פריט במדף", "כמות", "מחיר ליח'", "מקור העלות", "עלות"].map(t => h("th", { key: t, style: th }, t)))),
               h("tbody", null, r.lines.map(l => {
-                const modeOf = x => x.mode === "stock" ? x.stockItemId : x.mode === "none" ? NO_COST : MANUAL_COST;
-                const current = l.entry ? modeOf(l.entry) : l.mapping ? modeOf(l.mapping) : "";
+                const modeOf = x => x.mode === "stock" ? x.stockItemId : x.mode === "none" ? NO_COST : x.mode === "production" ? PRODUCTION_COST : MANUAL_COST;
+                const current = l.entry ? modeOf(l.entry) : l.mapping ? modeOf(l.mapping) : l.production ? PRODUCTION_COST : "";
+                const firstProd = l.production && r.lines.find(x => x.production) === l;
+                const prodText = !l.production ? null : !firstProd ? "כלול בשורה למעלה" : r.pc.status === "ok" ? `מהשרטוט: ${fmtILS(r.pc.cost)}${r.pc.partial ? " (חסרים מחירים במחירון)" : ""}` : r.pc.status === "waiting" ? "ממתין לאישור מדידה" : "אין שרטוט שמור";
                 return h("tr", { key: l.idx, style: { borderBottom: `1px solid ${colors.border}` } },
-                  h("td", { style: cell }, l.desc, h("div", { style: { fontSize: 11, color: colors.textMuted } }, "פריט " + l.part)),
+                  h("td", { style: cell }, l.desc, h("div", { style: { fontSize: 11, color: colors.textMuted } }, "פריט " + l.part,
+                    l.exact ? " · מרשימת הפריטים" : l.catalogName ? " · טקסט שונה מהרשימה" : " · נכתב ידנית"),
+                    l.suggestion && !l.entry && h("div", { style: { fontSize: 11, color: colors.warning, fontWeight: 600 } },
+                      `בדוק: ברשימת הפריטים זה "${l.catalogName}". אם זה אותו מוצר — בחר את אותו מקור עלות.`)),
                   h("td", { style: cell }, l.qty), h("td", { style: cell }, fmtILS(l.price)),
                   h("td", { style: cell }, h("select", { value: current, disabled: busy, onChange: e => setSource(r, l, e.target.value), style: { ...inputStyle, minWidth: 220, padding: "4px 6px" } },
                     h("option", { value: "" }, "— בחר מקור עלות —"),
-                    h("option", { value: MANUAL_COST }, "ייצור מיוחד / עלות ידנית"),
+                    h("option", { value: PRODUCTION_COST }, "ייצור מיוחד — עלות מהשרטוט"),
+                    h("option", { value: MANUAL_COST }, "עלות ידנית"),
                     h("option", { value: NO_COST }, "ללא עלות (שירות / התקנה / לא מוצר)"),
                     h("optgroup", { label: "מקלחון מהמלאי (לפי מחיר המכולה)" }, sortedStock.map(i => h("option", { key: i.id, value: i.id }, `${i.name}${i.finish ? " · " + i.finish : ""} (במלאי ${Number(i.stock) || 0})`)))),
                     l.entry && l.entry.mode === "stock" && l.entry.taken && h("div", { style: { fontSize: 11, color: colors.success, marginTop: 2 } }, "ירד מהמלאי ✓")),
-                  h("td", { style: { ...cell, fontWeight: 600 } }, l.cost == null ? h("span", { style: { color: colors.warning } }, "חסר") : fmtILS(l.cost),
+                  h("td", { style: { ...cell, fontWeight: 600 } }, l.production ? h("span", { style: { color: firstProd && r.pc.status === "ok" ? colors.text : colors.warning } }, prodText) : l.cost == null ? h("span", { style: { color: colors.warning } }, "חסר") : fmtILS(l.cost),
                     current === MANUAL_COST && h("span", { style: { marginRight: 6, cursor: "pointer", color: colors.primary, fontSize: 12 }, onClick: () => editManual(r, l) }, " ✎ שנה")));
               }))))));
           return out;
