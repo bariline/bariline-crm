@@ -137,7 +137,7 @@ const FIREBASE_CONFIG = {
   appId: "1:1042161550667:web:61a07d439a34c4705b94ce"
 };
 
-const APP_VERSION = "2026-10-21-madaf";
+const APP_VERSION = "2026-11-02-stock-profit";
 // ─── Password hashing — passwords are never stored in plain text ────
 async function hashPassword(accountId, pw) {
   const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode("bariline-v1|" + String(accountId) + "|" + String(pw || "")));
@@ -9404,6 +9404,17 @@ async function stockAdjust(lines, meta) {
   });
   await batch.commit();
   usageCounters.writes += lines.length * 2;
+  // Standard showers: units leave the oldest container first (FIFO), so the in-stock average stays real
+  if (!meta.skipLayers) {
+    for (const l of lines) {
+      if (l.kind !== "model" || !l.qty) continue;
+      try {
+        await stockLayersMove(stockItemId(l.kind, l.name, l.finish), l.qty);
+      } catch (e) {
+        console.warn("container layers", e);
+      }
+    }
+  }
 }
 // Hardware of an order's saved drawing → stock lines (negative = taken from stock)
 function orderHardwareLines(order) {
@@ -9424,10 +9435,385 @@ function orderHardwareLines(order) {
   });
   return Object.values(out).filter(l => l.qty !== 0);
 }
+// ─── Containers from China (Firestore: containers) ───────────────────────────
+// The supplier's proforma (Excel) is imported, the office fills the dollar rate (which already
+// includes shipping and all costs), and every model gets its real ₪ price per unit.
+// Received containers add their quantities to the standard-shower stock (stockItems, kind "model").
+const XLSX_URL = "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";
+// First guesses for the Hebrew names; the office can fix them in the import screen, and names
+// used in earlier containers are remembered.
+const CONTAINER_MODEL_HE = {
+  "NEW YORK": "ניו יורק",
+  "DALAS": "דאלאס",
+  "DALLAS": "דאלאס",
+  "PALACE": "פאלאס",
+  "LUGANO": "לוגאנו",
+  "MIAMI": "מיאמי",
+  "MIAMI 1": "מיאמי 1",
+  "ORLANDO": "אורלנדו",
+  "SIDE WALL": "דופן"
+};
+const MONTHS_EN = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+const round2 = n => Math.round((Number(n) || 0) * 100) / 100;
+const fmtILS = n => "₪" + round2(n).toLocaleString("he-IL", { maximumFractionDigits: 2 });
+const fmtUSD = n => "$" + round2(n).toLocaleString("en-US", { maximumFractionDigits: 2 });
+function containerGlass(spec) {
+  const s = spec.toLowerCase();
+  if (s.includes("stripe")) return "פסים";
+  if (s.includes("granit")) return "גרניט";
+  if (s.includes("frost") || s.includes("milk")) return "חלבי";
+  if (s.includes("clear")) return "שקוף";
+  return "";
+}
+function containerProfile(spec) {
+  const s = spec.toLowerCase();
+  if (/matt?e?\s*black/.test(s)) return "שחור מט";
+  if (s.includes("black")) return "שחור";
+  if (s.includes("chrome")) return "כרום";
+  if (s.includes("nickel")) return "ניקל";
+  if (s.includes("gold")) return "זהב";
+  if (s.includes("graphite") || s.includes("gun")) return "גרפיט";
+  if (s.includes("white")) return "לבן";
+  return "";
+}
+// 'NEW YORK 76*76*185cm' -> { base: 'NEW YORK', size: '76*76' } (height dropped)
+function containerItem(text) {
+  const tokens = text.trim().split(/\s+/);
+  let idx = -1;
+  tokens.forEach((t, i) => {
+    if (/\d/.test(t) && /[*+\-]/.test(t)) idx = i;
+  });
+  if (idx <= 0) return { base: text.trim().toUpperCase(), size: "" };
+  return {
+    base: tokens.slice(0, idx).join(" ").toUpperCase(),
+    size: tokens[idx].replace(/cm$/i, "").replace(/\*\d+$/, "")
+  };
+}
+function containerStockKey(l) {
+  return {
+    kind: "model",
+    name: (l.model + " " + l.size).trim(),
+    finish: [l.glass, l.profile].filter(Boolean).join(" · ")
+  };
+}
+// Rows of the supplier's sheet -> { piNo, date, supplier, lines }
+function parseContainerSheet(rows) {
+  const cells = rows.map(r => r.map(c => String(c == null ? "" : c).trim()));
+  const all = cells.map(r => r.join("  ")).join("\n");
+  const pi = all.match(/PI\s*No\.?\s*:?\s*([A-Za-z0-9\-_]+)/i);
+  const dm = all.match(/Date\s*:?\s*(\d{1,2})[.\s\-\/]+([A-Za-z]{3,})[.\s\-\/]+(\d{4})/i);
+  let date = "";
+  if (dm && MONTHS_EN.indexOf(dm[2].slice(0, 3).toLowerCase()) >= 0) {
+    date = dm[3] + "-" + String(MONTHS_EN.indexOf(dm[2].slice(0, 3).toLowerCase()) + 1).padStart(2, "0") + "-" + dm[1].padStart(2, "0");
+  }
+  const supplierLine = (cells[0] || []).join(" ").split("\n").find(s => /co\.|ltd|company/i.test(s));
+  const hi = cells.findIndex(r => r.some(c => /quantity/i.test(c)) && r.some(c => /unit\s*price/i.test(c)));
+  if (hi < 0) throw new Error("לא נמצאה בקובץ שורת כותרת עם Quantity ו-Unit Price");
+  const head = cells[hi];
+  const qtyCol = head.findIndex(c => /quantity/i.test(c));
+  const priceCol = head.findIndex(c => /unit\s*price/i.test(c));
+  let specCol = head.findIndex(c => /name\s*of\s*commodity|specification|description/i.test(c));
+  if (specCol < 0) specCol = 1;
+  const lines = [];
+  let lastItem = "";
+  for (let r = hi + 1; r < cells.length; r++) {
+    const row = cells[r];
+    if (row.some(c => /total/i.test(c))) break;
+    const qty = Number(row[qtyCol]);
+    const usd = Number(row[priceCol]);
+    if (!qty || !usd) continue;
+    if (row[0]) lastItem = row[0];
+    if (!lastItem) continue;
+    const spec = row[specCol] || "";
+    const item = containerItem(lastItem);
+    lines.push({
+      en: lastItem.replace(/\s+/g, " "),
+      spec: spec.replace(/\s+/g, " "),
+      base: item.base,
+      size: item.size,
+      glass: containerGlass(spec),
+      profile: containerProfile(spec),
+      qty,
+      usd
+    });
+  }
+  if (!lines.length) throw new Error("לא נמצאו שורות דגמים בקובץ");
+  return {
+    piNo: pi ? pi[1] : "",
+    date,
+    supplier: supplierLine ? supplierLine.trim() : "",
+    lines
+  };
+}
+// Units of a container line still in stock (older saves have no 'remaining' yet = all of them)
+function lineRemaining(c, l) {
+  if (!c.stockAdded) return 0;
+  return l.remaining == null ? Number(l.qty) || 0 : Number(l.remaining) || 0;
+}
+function containerOrderKey(c) {
+  return c.receivedAt || c.date || c.createdAt || "";
+}
+// qty < 0: take units from the oldest container that still has them (FIFO).
+// qty > 0: put units back into the newest container they were taken from (undo of a −1).
+async function stockLayersMove(itemId, qty) {
+  const db = getDb();
+  if (!db) return;
+  const snap = await db.collection("containers").where("stockAdded", "==", true).get();
+  const refs = snap.docs.filter(d => (d.data().lines || []).some(l => {
+    const k = containerStockKey(l);
+    return stockItemId(k.kind, k.name, k.finish) === itemId;
+  })).map(d => d.ref);
+  if (!refs.length) return { qty: 0, cost: 0 };
+  return db.runTransaction(async t => {
+    const docs = await Promise.all(refs.map(r => t.get(r)));
+    const cs = docs.filter(d => d.exists && d.data().stockAdded).map(d => ({ ref: d.ref, data: d.data() }))
+      .sort((a, b) => containerOrderKey(a.data).localeCompare(containerOrderKey(b.data)));
+    let left = Math.abs(qty),
+      cost = 0;
+    for (const c of qty < 0 ? cs : cs.slice().reverse()) {
+      if (left <= 0) break;
+      let changed = false;
+      const lines = c.data.lines.map(l => {
+        const k = containerStockKey(l);
+        const out = { ...l, remaining: lineRemaining(c.data, l) };
+        if (left > 0 && stockItemId(k.kind, k.name, k.finish) === itemId) {
+          const take = qty < 0 ? Math.min(left, out.remaining) : Math.min(left, out.qty - out.remaining);
+          if (take > 0) {
+            out.remaining += qty < 0 ? -take : take;
+            left -= take;
+            cost += take * (Number(l.ils) || 0);
+            changed = true;
+          }
+        }
+        return out;
+      });
+      if (changed) t.update(c.ref, { lines });
+    }
+    return { qty: Math.abs(qty) - left, cost };
+  });
+}
+// Weighted average ₪ price per stock item and per model, from all saved containers
+// (avg = everything ever bought, stockAvg = only the units still in stock)
+function containerAverages(containers) {
+  const byItem = {},
+    byModel = {};
+  containers.forEach(c => (c.lines || []).forEach(l => {
+    if (!l.ils) return;
+    const k = containerStockKey(l);
+    const id = stockItemId(k.kind, k.name, k.finish);
+    [[byItem, id, k.name + (k.finish ? " · " + k.finish : "")], [byModel, l.model, l.model]].forEach(([map, key, label]) => {
+      const a = map[key] = map[key] || { key, label, model: l.model, qty: 0, total: 0, stockQty: 0, stockTotal: 0, history: [] };
+      const rem = lineRemaining(c, l);
+      a.qty += l.qty;
+      a.total += l.qty * l.ils;
+      a.stockQty += rem;
+      a.stockTotal += rem * l.ils;
+      a.history.push({ container: c.piNo || c.id, date: c.date, qty: l.qty, remaining: rem, inStock: !!c.stockAdded, ils: l.ils, item: k.name + (k.finish ? " · " + k.finish : "") });
+    });
+  }));
+  [byItem, byModel].forEach(map => Object.values(map).forEach(a => {
+    a.avg = a.qty ? a.total / a.qty : 0;
+    a.stockAvg = a.stockQty ? a.stockTotal / a.stockQty : 0;
+  }));
+  return { byItem, byModel };
+}
+const ContainersPanel = ({ containers }) => {
+  const h = React.createElement;
+  const [draft, setDraft] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [open, setOpen] = useState(null);
+  const [modelFilter, setModelFilter] = useState("");
+  const fileRef = useRef(null);
+  const learned = useMemo(() => {
+    const m = { ...CONTAINER_MODEL_HE };
+    containers.slice().sort((a, b) => (a.createdAt || "").localeCompare(b.createdAt || "")).forEach(c => (c.lines || []).forEach(l => {
+      if (l.base && l.model) m[l.base] = l.model;
+    }));
+    return m;
+  }, [containers]);
+  const avgs = useMemo(() => containerAverages(containers), [containers]);
+  const importFile = async file => {
+    if (!file) return;
+    setBusy(true);
+    try {
+      if (!window.XLSX) await loadScript(XLSX_URL);
+      const wb = window.XLSX.read(await file.arrayBuffer(), { type: "array" });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const parsed = parseContainerSheet(window.XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: "" }));
+      const names = {};
+      parsed.lines.forEach(l => {
+        names[l.base] = learned[l.base] || l.base;
+      });
+      if (parsed.piNo && containers.some(c => c.piNo === parsed.piNo)) {
+        alert(`מכולה ${parsed.piNo} כבר שמורה במערכת. אפשר להמשיך רק אם זו מכולה אחרת.`);
+      }
+      setDraft({ ...parsed, names, rate: "", received: true, fileName: file.name });
+    } catch (e) {
+      console.error("container import", e);
+      alert("לא הצלחתי לקרוא את הקובץ: " + (e.message || e));
+    }
+    setBusy(false);
+    if (fileRef.current) fileRef.current.value = "";
+  };
+  const rate = draft ? Number(draft.rate) || 0 : 0;
+  const draftLines = draft ? draft.lines.map(l => ({ ...l, model: (draft.names[l.base] || l.base).trim(), ils: round2(l.usd * rate) })) : [];
+  const saveDraft = async () => {
+    if (!rate) {
+      alert("יש למלא שער דולר");
+      return;
+    }
+    if (draftLines.some(l => !l.model)) {
+      alert("יש למלא שם עברי לכל דגם");
+      return;
+    }
+    const id = (draft.piNo || "container-" + Date.now()).replace(/[\/.#\[\]]/g, "-");
+    if (containers.some(c => c.id === id) && !confirm(`מכולה ${id} כבר קיימת. לשמור עליה?`)) return;
+    setBusy(true);
+    try {
+      const db = getDb();
+      const now = new Date().toISOString();
+      const doc = {
+        id,
+        piNo: draft.piNo,
+        supplier: draft.supplier,
+        date: draft.date,
+        usdRate: rate,
+        fileName: draft.fileName,
+        lines: draftLines.map(({ en, spec, base, size, glass, profile, qty, usd, model, ils }) => ({ en, spec, base, size, glass, profile, qty, usd, model, ils })),
+        units: draftLines.reduce((s, l) => s + l.qty, 0),
+        totalUsd: round2(draftLines.reduce((s, l) => s + l.qty * l.usd, 0)),
+        totalIls: round2(draftLines.reduce((s, l) => s + l.qty * l.ils, 0)),
+        status: draft.received ? "received" : "transit",
+        stockAdded: false,
+        createdAt: now,
+        receivedAt: draft.received ? now : null
+      };
+      await db.collection("containers").doc(id).set(doc);
+      if (draft.received) await addToStock(doc);
+      setDraft(null);
+    } catch (e) {
+      console.error("container save", e);
+      alert("השמירה נכשלה — נסה שוב");
+    }
+    setBusy(false);
+  };
+  const addToStock = async c => {
+    await stockAdjust(c.lines.map(l => ({ ...containerStockKey(l), qty: l.qty })), { reason: "מכולה " + (c.piNo || c.id), orderId: c.piNo || c.id, skipLayers: true });
+    await getDb().collection("containers").doc(c.id).set({ status: "received", stockAdded: true, receivedAt: c.receivedAt || new Date().toISOString(),
+      lines: c.lines.map(l => ({ ...l, remaining: l.qty })) }, { merge: true });
+  };
+  const receive = async c => {
+    if (!confirm(`להכניס למלאי את ${c.units} היחידות של מכולה ${c.piNo || c.id}?`)) return;
+    setBusy(true);
+    try {
+      await addToStock(c);
+    } catch (e) {
+      alert("העדכון נכשל — נסה שוב");
+    }
+    setBusy(false);
+  };
+  const changeRate = async c => {
+    const v = prompt("שער דולר חדש (כולל הובלה וכל העלויות):", String(c.usdRate || ""));
+    if (v === null || !Number(v)) return;
+    const r = Number(v);
+    const lines = c.lines.map(l => ({ ...l, ils: round2(l.usd * r) }));
+    await getDb().collection("containers").doc(c.id).set({ usdRate: r, lines, totalIls: round2(lines.reduce((s, l) => s + l.qty * l.ils, 0)) }, { merge: true });
+  };
+  const remove = async c => {
+    const left = (c.lines || []).reduce((s, l) => s + lineRemaining(c, l), 0);
+    const msg = c.stockAdded ? `למחוק את מכולה ${c.piNo || c.id}? ${left} היחידות שנשארו ממנה במלאי יורדו מהמלאי.` : `למחוק את מכולה ${c.piNo || c.id}?`;
+    if (!confirm(msg)) return;
+    setBusy(true);
+    try {
+      if (c.stockAdded) await stockAdjust(c.lines.map(l => ({ ...containerStockKey(l), qty: -lineRemaining(c, l) })), { reason: "ביטול מכולה " + (c.piNo || c.id), orderId: c.piNo || c.id, skipLayers: true });
+      await fsDeleteDocument("containers", c.id); // keeps a copy in _trash
+    } catch (e) {
+      alert("המחיקה נכשלה — נסה שוב");
+    }
+    setBusy(false);
+  };
+  const cell = { padding: "6px 8px", textAlign: "right" };
+  const th = { ...cell, fontWeight: 600, color: colors.textLight, fontSize: 12, background: colors.bg };
+  const table = (heads, rows) => h("div", { style: { overflowX: "auto" } }, h("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: 13 } },
+    h("thead", null, h("tr", null, heads.map((t, i) => h("th", { key: i, style: th }, t)))),
+    h("tbody", null, rows)));
+  const tr = (key, tds, style) => h("tr", { key, style: { borderBottom: `1px solid ${colors.border}`, ...style } }, tds.map((t, i) => h("td", { key: i, style: cell }, t)));
+  const sorted = containers.slice().sort((a, b) => (b.date || b.createdAt || "").localeCompare(a.date || a.createdAt || ""));
+  const models = Object.values(avgs.byModel).sort((a, b) => a.label.localeCompare(b.label, "he"));
+  const shownModels = models.filter(m => !modelFilter || m.label.includes(modelFilter));
+
+  return h("div", null,
+    h("div", { style: { display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginBottom: 12 } },
+      h("input", { ref: fileRef, type: "file", accept: ".xls,.xlsx,.csv", style: { display: "none" }, onChange: e => importFile(e.target.files[0]) }),
+      h(Button, { onClick: () => fileRef.current && fileRef.current.click(), disabled: busy }, Icons.plus, " ייבוא מכולה מקובץ אקסל"),
+      h("span", { style: { fontSize: 12, color: colors.textMuted } }, "קובץ ה-PI מהספק (xls / xlsx). השער שתמלא כולל הובלה וכל העלויות.")),
+
+    draft && h(Card, { style: { marginBottom: 16, padding: 14 } },
+      h("div", { style: { display: "flex", gap: 12, flexWrap: "wrap", alignItems: "flex-end", marginBottom: 12 } },
+        h("label", { style: { display: "flex", flexDirection: "column", fontSize: 12, gap: 4 } }, "מספר מכולה / PI",
+          h("input", { style: { ...inputStyle, width: 170 }, value: draft.piNo, onChange: e => setDraft({ ...draft, piNo: e.target.value }) })),
+        h("label", { style: { display: "flex", flexDirection: "column", fontSize: 12, gap: 4 } }, "תאריך",
+          h("input", { type: "date", style: { ...inputStyle, width: 150 }, value: draft.date, onChange: e => setDraft({ ...draft, date: e.target.value }) })),
+        h("label", { style: { display: "flex", flexDirection: "column", fontSize: 12, gap: 4, fontWeight: 700 } }, "שער דולר (₪ ל-$1)",
+          h("input", { type: "number", step: "0.01", autoFocus: true, placeholder: "לדוגמה 4.20", style: { ...inputStyle, width: 120, borderColor: rate ? colors.border : colors.warning }, value: draft.rate, onChange: e => setDraft({ ...draft, rate: e.target.value }) })),
+        h("label", { style: { display: "flex", gap: 6, fontSize: 13, alignItems: "center", paddingBottom: 8 } },
+          h("input", { type: "checkbox", checked: draft.received, onChange: e => setDraft({ ...draft, received: e.target.checked }) }), "המכולה הגיעה — להכניס למלאי עכשיו")),
+      h("div", { style: { fontSize: 12, color: colors.textLight, marginBottom: 8 } }, draft.supplier, draft.fileName ? " · " + draft.fileName : ""),
+      h("div", { style: { fontSize: 13, fontWeight: 600, margin: "4px 0 6px" } }, "שמות הדגמים בעברית (נשמרים לפעם הבאה):"),
+      h("div", { style: { display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 } }, Object.keys(draft.names).map(base => h("label", { key: base, style: { display: "flex", flexDirection: "column", fontSize: 11, gap: 2, color: colors.textLight } }, base,
+        h("input", { style: { ...inputStyle, width: 130 }, value: draft.names[base], onChange: e => setDraft({ ...draft, names: { ...draft.names, [base]: e.target.value } }) })))),
+      table(["דגם", "מידה", "זכוכית", "פרופיל", "כמות", "מחיר $", "מחיר ₪ ליחידה", "סה\"כ ₪", "בקובץ"], draftLines.map((l, i) => tr(i, [
+        h("b", null, l.model), l.size || "—", l.glass || "—", l.profile || "—", l.qty, fmtUSD(l.usd),
+        rate ? h("b", null, fmtILS(l.ils)) : "—", rate ? fmtILS(l.qty * l.ils) : "—",
+        h("span", { style: { fontSize: 11, color: colors.textMuted } }, l.en, " · ", l.spec)]))),
+      h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 12, flexWrap: "wrap", gap: 8 } },
+        h("div", { style: { fontSize: 13 } }, h("b", null, draftLines.reduce((s, l) => s + l.qty, 0)), " יחידות · ", fmtUSD(draftLines.reduce((s, l) => s + l.qty * l.usd, 0)),
+          rate ? h("span", null, " · ", h("b", null, fmtILS(draftLines.reduce((s, l) => s + l.qty * l.ils, 0)))) : null),
+        h("div", { style: { display: "flex", gap: 8 } },
+          h(Button, { onClick: saveDraft, disabled: busy || !rate }, draft.received ? "שמור והכנס למלאי" : "שמור (בדרך)"),
+          h(Button, { variant: "outline", onClick: () => setDraft(null) }, "ביטול")))),
+
+    h("h3", { style: { fontSize: 15, margin: "6px 0 8px" } }, "מכולות"),
+    h(Card, { style: { padding: 0, marginBottom: 16 } }, sorted.length === 0 ? h("div", { style: { padding: 20, textAlign: "center", color: colors.textMuted, fontSize: 13 } }, "אין עדיין מכולות. לחץ \"ייבוא מכולה מקובץ אקסל\".") :
+      table(["מכולה", "תאריך", "שער $", "יחידות", "נשארו במלאי", "סה\"כ $", "סה\"כ ₪", "סטטוס", ""], sorted.flatMap(c => {
+        const rows = [tr(c.id, [
+          h("b", { style: { cursor: "pointer", color: colors.primary }, onClick: () => setOpen(open === c.id ? null : c.id) }, (open === c.id ? "▾ " : "▸ ") + (c.piNo || c.id)),
+          c.date ? new Date(c.date).toLocaleDateString("he-IL") : "—",
+          h("span", { style: { cursor: "pointer" }, title: "לחץ לשינוי השער", onClick: () => changeRate(c) }, c.usdRate), c.units,
+          c.stockAdded ? (c.lines || []).reduce((s, l) => s + lineRemaining(c, l), 0) : "—", fmtUSD(c.totalUsd), fmtILS(c.totalIls),
+          c.stockAdded ? h(Badge, { color: colors.success }, "במלאי") : h(Badge, { color: colors.warning }, "בדרך"),
+          h("span", { style: { whiteSpace: "nowrap" } }, !c.stockAdded && h(Button, { size: "sm", disabled: busy, onClick: () => receive(c) }, "הגיעה — הכנס למלאי"), " ",
+            h(Button, { size: "sm", variant: "outline", disabled: busy, onClick: () => remove(c) }, "מחק"))])];
+        if (open === c.id) rows.push(h("tr", { key: c.id + "-lines" }, h("td", { colSpan: 9, style: { padding: "4px 12px 12px", background: colors.bg } },
+          table(["דגם", "מידה", "זכוכית", "פרופיל", "כמות", "נשארו", "מחיר $", "מחיר ₪ ליחידה"], (c.lines || []).map((l, i) => tr(i, [l.model, l.size || "—", l.glass || "—", l.profile || "—", l.qty,
+            c.stockAdded ? lineRemaining(c, l) : "—", fmtUSD(l.usd), h("b", null, fmtILS(l.ils))]))))));
+        return rows;
+      }))),
+
+    h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8, margin: "6px 0 8px" } },
+      h("h3", { style: { fontSize: 15, margin: 0 } }, "מחירים ממוצעים לפי דגם"),
+      h(SearchBar, { value: modelFilter, onChange: setModelFilter, placeholder: "חיפוש דגם, לדוגמה ניו יורק" })),
+    h("p", { style: { margin: "0 0 8px", fontSize: 12, color: colors.textMuted } }, "ממוצע משוקלל לפי כמות. \"במלאי\" = רק היחידות שנשארו (כל הורדה מהמלאי לוקחת מהמכולה הישנה ביותר). \"כל הקניות\" = כל מה שנקנה אי פעם. לחץ על דגם לפירוט."),
+    h(Card, { style: { padding: 0 } }, shownModels.length === 0 ? h("div", { style: { padding: 20, textAlign: "center", color: colors.textMuted, fontSize: 13 } }, "אין עדיין מחירים.") :
+      shownModels.map(m => {
+        const variants = Object.values(avgs.byItem).filter(v => v.model === m.model).sort((a, b) => a.label.localeCompare(b.label, "he"));
+        return h("details", { key: m.key, style: { borderBottom: `1px solid ${colors.border}`, padding: "10px 12px" } },
+          h("summary", { style: { cursor: "pointer", fontSize: 14 } }, h("b", null, m.label), " — במלאי: ",
+            h("b", { style: { color: colors.primary } }, m.stockQty ? fmtILS(m.stockAvg) : "—"), ` (${m.stockQty} יח') · כל הקניות: `,
+            h("b", null, fmtILS(m.avg)), ` (${m.qty} יח' מ-${new Set(m.history.map(x => x.container)).size} מכולות)`),
+          h("div", { style: { marginTop: 8 } }, table(["מידה / צבע", "במלאי", "ממוצע במלאי", "נקנו", "ממוצע כל הקניות", "אחרון ₪", "לפי מכולה (נשארו / נקנו × מחיר)"], variants.map(v => {
+            const hist = v.history.slice().sort((a, b) => (a.date || "").localeCompare(b.date || ""));
+            return tr(v.key, [v.label, v.stockQty, h("b", null, v.stockQty ? fmtILS(v.stockAvg) : "—"), v.qty, fmtILS(v.avg), fmtILS(hist[hist.length - 1].ils),
+              h("span", { style: { fontSize: 12, color: colors.textLight } }, hist.map(x => `${x.container}: ${x.inStock ? x.remaining : "בדרך"} / ${x.qty} × ${fmtILS(x.ils)}`).join(" · "))]);
+          }))));
+      })));
+};
+
 const InventoryPage = () => {
   const h = React.createElement;
   const [items, setItems] = useState([]);
   const [moves, setMoves] = useState([]);
+  const [containers, setContainers] = useState([]);
   const [tab, setTab] = useState("hardware");
   const [search, setSearch] = useState("");
   const [busy, setBusy] = useState(false);
@@ -9437,9 +9823,11 @@ const InventoryPage = () => {
     if (!db) return;
     const u1 = db.collection("stockItems").onSnapshot(s => setItems(s.docs.map(d => d.data())), e => console.warn("stockItems", e));
     const u2 = db.collection("stockMoves").orderBy("at", "desc").limit(30).onSnapshot(s => setMoves(s.docs.map(d => d.data())), e => console.warn("stockMoves", e));
+    const u3 = db.collection("containers").onSnapshot(s => setContainers(s.docs.map(d => d.data())), e => console.warn("containers", e));
     return () => {
       u1();
       u2();
+      u3();
     };
   }, []);
   const adjust = async (it, qty, reason) => {
@@ -9496,7 +9884,8 @@ const InventoryPage = () => {
         finish: form.finish,
         qty
       }], {
-        reason: "מלאי פתיחה"
+        reason: "מלאי פתיחה",
+        skipLayers: true
       });
       setForm(null);
     } catch (e) {
@@ -9504,6 +9893,7 @@ const InventoryPage = () => {
     }
     setBusy(false);
   };
+  const avgByItem = useMemo(() => containerAverages(containers).byItem, [containers]);
   const list = items.filter(i => i.kind === tab && (!search || (i.name + " " + (i.finish || "")).includes(search))).sort((a, b) => (a.name + a.finish).localeCompare(b.name + b.finish, "he"));
   const low = items.filter(i => (Number(i.stock) || 0) <= (Number(i.minStock) || 0) && (Number(i.minStock) || 0) > 0);
   const negative = items.filter(i => (Number(i.stock) || 0) < 0);
@@ -9541,7 +9931,7 @@ const InventoryPage = () => {
       color: colors.danger,
       fontWeight: 700
     }
-  }, negative.length, " פריטים במינוס — כדאי לעשות ספירה."))), h(Button, {
+  }, negative.length, " פריטים במינוס — כדאי לעשות ספירה."))), tab !== "containers" && h(Button, {
     onClick: () => setForm({
       kind: tab,
       name: "",
@@ -9564,11 +9954,17 @@ const InventoryPage = () => {
     size: "sm",
     variant: tab === "model" ? "primary" : "outline",
     onClick: () => setTab("model")
-  }, "מקלחונים סטנדרט"), h(SearchBar, {
+  }, "מקלחונים סטנדרט"), h(Button, {
+    size: "sm",
+    variant: tab === "containers" ? "primary" : "outline",
+    onClick: () => setTab("containers")
+  }, "מכולות ומחירים"), tab !== "containers" && h(SearchBar, {
     value: search,
     onChange: setSearch,
     placeholder: "חיפוש..."
-  })), form && h(Card, {
+  })), tab === "containers" ? h(ContainersPanel, {
+    containers
+  }) : form && h(Card, {
     style: {
       marginBottom: 12,
       display: "flex",
@@ -9672,7 +10068,7 @@ const InventoryPage = () => {
     size: "sm",
     variant: "outline",
     onClick: () => setForm(null)
-  }, "ביטול")), h(Card, {
+  }, "ביטול")), tab !== "containers" && h(Card, {
     style: {
       padding: 0,
       overflow: "auto"
@@ -9695,7 +10091,7 @@ const InventoryPage = () => {
       background: colors.bg,
       textAlign: "right"
     }
-  }, ["פריט", "גימור", "במלאי", "מינימום", "סטטוס", ""].map(t => h("th", {
+  }, (tab === "model" ? ["פריט", "גימור", "ממוצע במלאי", "ממוצע כל הקניות", "במלאי", "מינימום", "סטטוס", ""] : ["פריט", "גימור", "במלאי", "מינימום", "סטטוס", ""]).map(t => h("th", {
     key: t,
     style: {
       ...cell,
@@ -9721,7 +10117,13 @@ const InventoryPage = () => {
       }
     }, it.name), h("td", {
       style: cell
-    }, it.finish || "—"), h("td", {
+    }, it.finish || "—"), tab === "model" && h("td", {
+      style: { ...cell, fontWeight: 700 },
+      title: avgByItem[it.id] ? `${avgByItem[it.id].stockQty} יחידות שנשארו ממכולות` : ""
+    }, avgByItem[it.id] && avgByItem[it.id].stockQty ? fmtILS(avgByItem[it.id].stockAvg) : "—"), tab === "model" && h("td", {
+      style: cell,
+      title: avgByItem[it.id] ? `${avgByItem[it.id].qty} יחידות מ-${new Set(avgByItem[it.id].history.map(x => x.container)).size} מכולות` : ""
+    }, avgByItem[it.id] ? fmtILS(avgByItem[it.id].avg) : "—"), h("td", {
       style: {
         ...cell,
         fontWeight: 700,
@@ -9801,7 +10203,308 @@ const InventoryPage = () => {
 
 // ─── Reports Page (Admin only) ───────────────────────────────────────────────
 
-const ReportsPage = ({
+// ─── Profit report (Firestore: deliveryCosts, _meta/madafPartMap) ────────────
+// madaf_sync.py puts every delivery note's price on its job (madafDelivery) as soon as it exists.
+// Each priced line gets a cost: a standard shower is taken from stock (oldest container first, at that
+// container's price); a custom shower gets a cost typed by the office. The choice per Madaf item is
+// remembered (_meta/madafPartMap), so the next delivery note with the same item is costed automatically.
+const MANUAL_COST = "__manual__";
+const NO_COST = "__none__"; // service / note line with a price (e.g. installation) — not a product
+// Delivery notes to stores (no end customer) are sales too — shown and taken from stock like jobs
+const supplyAsJob = s => ({ id: s.id, customerName: s.store, madafDelivery: s.madafDelivery, status: s.status === "pending" ? "pending" : "completed", isSupply: true });
+const deliveryPartKey = l => (String(l.part || "") + "|" + String(l.desc || "").trim()).replace(/[.\/\[\]*~`]/g, "_").slice(0, 400);
+const madafDate = d => d && /^\d{8}$/.test(d) ? d.slice(0, 4) + "-" + d.slice(4, 6) + "-" + d.slice(6, 8) : d || "";
+const deliveryStockDone = new Set(); // delivery lines already handled in this browser session
+async function fallbackUnitCost(itemId) {
+  const snap = await getDb().collection("containers").get();
+  const a = containerAverages(snap.docs.map(d => d.data())).byItem[itemId];
+  return a ? a.stockQty ? a.stockAvg : a.avg : null;
+}
+// Take a delivery line's units out of stock once, and record what they cost
+async function takeDeliveryLine(job, idx, line, target) {
+  const db = getDb();
+  const no = String(job.madafDelivery.no);
+  const ref = db.collection("deliveryCosts").doc(no);
+  const qty = Number(line.qty) || 1;
+  const claimed = await db.runTransaction(async t => {
+    const d = await t.get(ref);
+    const prev = d.exists && d.data().lines && d.data().lines[idx];
+    if (prev && prev.mode === "stock" && prev.taken) return false;
+    t.set(ref, {
+      deliveryNo: job.madafDelivery.no,
+      jobId: job.id,
+      lines: { [idx]: { key: deliveryPartKey(line), mode: "stock", stockItemId: target.id, name: target.name, finish: target.finish || "", qty, taken: true, unitCost: null } },
+      updatedAt: new Date().toISOString()
+    }, { merge: true });
+    return true;
+  });
+  if (!claimed) return;
+  await stockAdjust([{ kind: "model", name: target.name, finish: target.finish || "", qty: -qty }], { reason: "תעודת משלוח " + no, orderId: job.id, skipLayers: true });
+  const res = await stockLayersMove(target.id, -qty);
+  let cost = res.cost;
+  if (res.qty < qty) {
+    const fb = await fallbackUnitCost(target.id);
+    cost = fb == null && !res.qty ? null : cost + (qty - res.qty) * (fb || 0);
+  }
+  await ref.set({ lines: { [idx]: { unitCost: cost == null ? null : round2(cost / qty) } } }, { merge: true });
+}
+async function returnDeliveryLine(job, idx, entry) {
+  const db = getDb();
+  const ref = db.collection("deliveryCosts").doc(String(job.madafDelivery.no));
+  await stockAdjust([{ kind: "model", name: entry.name, finish: entry.finish || "", qty: entry.qty }], { reason: "ביטול שיוך — תעודת משלוח " + job.madafDelivery.no, orderId: job.id, skipLayers: true });
+  await stockLayersMove(entry.stockItemId, entry.qty);
+  await ref.set({ lines: { [idx]: firebase.firestore.FieldValue.delete() } }, { merge: true });
+}
+// New delivery notes whose items were already matched to a stock item: take them from stock automatically
+async function runDeliveryStock(jobs, partMap, costs, stockItems) {
+  for (const job of jobs) {
+    const d = job.madafDelivery;
+    if (!d || !Array.isArray(d.lines)) continue;
+    for (let idx = 0; idx < d.lines.length; idx++) {
+      const line = d.lines[idx];
+      const k = d.no + ":" + idx;
+      const m = partMap[deliveryPartKey(line)];
+      const entry = costs[String(d.no)] && costs[String(d.no)].lines && costs[String(d.no)].lines[idx];
+      if (deliveryStockDone.has(k) || entry || !m || m.mode !== "stock") continue;
+      const target = stockItems.find(i => i.id === m.stockItemId);
+      if (!target) continue;
+      deliveryStockDone.add(k);
+      try {
+        await takeDeliveryLine(job, idx, line, target);
+      } catch (e) {
+        console.warn("delivery stock", d.no, e);
+        deliveryStockDone.delete(k);
+      }
+    }
+  }
+}
+// Runs in the background for admins, so delivery notes leave stock even if nobody opens the report
+let deliveryStockLastRun = 0;
+async function autoDeliveryStock(workOrders) {
+  const db = getDb();
+  if (!db || Date.now() - deliveryStockLastRun < 3 * 60 * 1000) return;
+  deliveryStockLastRun = Date.now();
+  const mapDoc = await db.collection("_meta").doc("madafPartMap").get();
+  const partMap = mapDoc.exists && mapDoc.data().map || {};
+  if (!Object.values(partMap).some(m => m && m.mode === "stock")) return;
+  const supplies = (await db.collection("storeSupplies").get()).docs.map(d => d.data()).filter(s => s.madafDelivery).map(supplyAsJob);
+  const jobs = workOrders.filter(w => w.madafDelivery && w.madafDelivery.no).concat(supplies);
+  const pending = jobs.filter(j => (j.madafDelivery.lines || []).some((l, idx) => !deliveryStockDone.has(j.madafDelivery.no + ":" + idx) && partMap[deliveryPartKey(l)] && partMap[deliveryPartKey(l)].mode === "stock"));
+  if (!pending.length) return;
+  const stockItems = (await db.collection("stockItems").where("kind", "==", "model").get()).docs.map(d => d.data());
+  const costs = {};
+  for (const j of pending) {
+    const d = await db.collection("deliveryCosts").doc(String(j.madafDelivery.no)).get();
+    if (d.exists) costs[d.id] = d.data();
+  }
+  await runDeliveryStock(pending, partMap, costs, stockItems);
+}
+// Cost of one delivery line: the recorded one, else the learned default for this Madaf item
+function deliveryLineCost(line, entry, mapping) {
+  const qty = Number(line.qty) || 1;
+  if (entry && entry.mode === "stock") return entry.unitCost == null ? null : entry.unitCost * qty;
+  if (entry && entry.mode === "manual") return (Number(entry.unitCost) || 0) * qty;
+  if (entry && entry.mode === "none" || !entry && mapping && mapping.mode === "none") return 0;
+  if (mapping && mapping.mode === "manual" && mapping.lastCost != null) return Number(mapping.lastCost) * qty;
+  return null;
+}
+const ProfitReport = ({ workOrders, installers }) => {
+  const h = React.createElement;
+  const [month, setMonth] = useState(new Date().toISOString().slice(0, 7));
+  const [costs, setCosts] = useState({});
+  const [partMap, setPartMap] = useState({});
+  const [stockItems, setStockItems] = useState([]);
+  const [supplies, setSupplies] = useState([]);
+  const [open, setOpen] = useState(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    const db = getDb();
+    if (!db) return;
+    const u1 = db.collection("deliveryCosts").onSnapshot(s => {
+      const m = {};
+      s.docs.forEach(d => m[d.id] = d.data());
+      setCosts(m);
+    }, e => console.warn("deliveryCosts", e));
+    const u2 = db.collection("_meta").doc("madafPartMap").onSnapshot(d => setPartMap(d.exists && d.data().map || {}), e => console.warn("madafPartMap", e));
+    const u3 = db.collection("stockItems").where("kind", "==", "model").onSnapshot(s => setStockItems(s.docs.map(d => d.data())), e => console.warn("stockItems", e));
+    const u4 = db.collection("storeSupplies").onSnapshot(s => setSupplies(s.docs.map(d => d.data())), e => console.warn("storeSupplies", e));
+    return () => {
+      u1();
+      u2();
+      u3();
+      u4();
+    };
+  }, []);
+  const jobs = useMemo(() => workOrders.filter(w => w.madafDelivery && w.madafDelivery.no)
+    .concat(supplies.filter(s => s.madafDelivery && s.madafDelivery.no).map(supplyAsJob)), [workOrders, supplies]);
+  useEffect(() => {
+    if (stockItems.length && Object.keys(partMap).length) runDeliveryStock(jobs, partMap, costs, stockItems);
+  }, [jobs, partMap, costs, stockItems]);
+  const rows = jobs.filter(w => madafDate(w.madafDelivery.date).slice(0, 7) === month).map(w => {
+    const d = w.madafDelivery;
+    const c = costs[String(d.no)] || {};
+    const lines = (d.lines || []).map((l, idx) => {
+      const entry = c.lines && c.lines[idx];
+      const mapping = partMap[deliveryPartKey(l)];
+      return { ...l, idx, entry, mapping, cost: deliveryLineCost(l, entry, mapping) };
+    });
+    const known = lines.filter(l => l.cost != null);
+    const cost = known.reduce((s, l) => s + l.cost, 0);
+    const price = Number(d.preVat) || 0;
+    const inst = installers.find(i => i.id === w.installerId);
+    return { job: w, d, lines, price, cost, profit: price - cost, pct: price ? (price - cost) / price * 100 : 0,
+      missing: lines.length - known.length, installer: inst ? inst.name : w.installerName || "" };
+  }).sort((a, b) => String(a.d.date).localeCompare(String(b.d.date)) || a.d.no - b.d.no);
+  const tot = rows.reduce((t, r) => ({ price: t.price + r.price, cost: t.cost + r.cost, missing: t.missing + (r.missing ? 1 : 0) }), { price: 0, cost: 0, missing: 0 });
+  // Profit only counts delivery notes whose costs are complete — otherwise it would look higher than it is
+  const full = rows.filter(r => !r.missing);
+  const fullPrice = full.reduce((s, r) => s + r.price, 0);
+  const totProfit = full.reduce((s, r) => s + r.profit, 0);
+  const totPct = fullPrice ? totProfit / fullPrice * 100 : 0;
+  const pctColor = p => p >= 30 ? colors.success : p >= 15 ? colors.warning : colors.danger;
+
+  const setSource = async (r, l, choice) => {
+    setBusy(true);
+    try {
+      const db = getDb();
+      const key = deliveryPartKey(l);
+      let v = null;
+      if (choice === MANUAL_COST) {
+        const last = l.mapping && l.mapping.lastCost != null ? l.mapping.lastCost : "";
+        v = prompt(`עלות ליחידה (₪, לפני מע"מ) עבור:\n${l.desc}`, String(last));
+        if (v === null || isNaN(Number(v))) return;
+      }
+      // Units taken from stock for the old choice go back into stock
+      if (l.entry && l.entry.mode === "stock" && l.entry.taken && l.entry.stockItemId !== choice) await returnDeliveryLine(r.job, l.idx, l.entry);
+      if (choice === NO_COST) {
+        await db.collection("deliveryCosts").doc(String(r.d.no)).set({ deliveryNo: r.d.no, jobId: r.job.id, lines: { [l.idx]: { key, mode: "none", unitCost: 0 } }, updatedAt: new Date().toISOString() }, { merge: true });
+        await db.collection("_meta").doc("madafPartMap").set({ map: { [key]: { mode: "none", desc: l.desc } } }, { merge: true });
+      } else if (choice === MANUAL_COST) {
+        await db.collection("deliveryCosts").doc(String(r.d.no)).set({ deliveryNo: r.d.no, jobId: r.job.id, lines: { [l.idx]: { key, mode: "manual", unitCost: Number(v) } }, updatedAt: new Date().toISOString() }, { merge: true });
+        await db.collection("_meta").doc("madafPartMap").set({ map: { [key]: { mode: "manual", lastCost: Number(v), desc: l.desc } } }, { merge: true });
+      } else if (choice) {
+        const target = stockItems.find(i => i.id === choice);
+        if (!target) return;
+        await db.collection("_meta").doc("madafPartMap").set({ map: { [key]: { mode: "stock", stockItemId: target.id, name: target.name, finish: target.finish || "", desc: l.desc } } }, { merge: true });
+        if (!(l.entry && l.entry.mode === "stock" && l.entry.taken && l.entry.stockItemId === choice)) await takeDeliveryLine(r.job, l.idx, l, target);
+      } else {
+        await db.collection("deliveryCosts").doc(String(r.d.no)).set({ lines: { [l.idx]: firebase.firestore.FieldValue.delete() } }, { merge: true });
+        await db.collection("_meta").doc("madafPartMap").set({ map: { [key]: firebase.firestore.FieldValue.delete() } }, { merge: true });
+      }
+    } catch (e) {
+      console.error("profit source", e);
+      alert("השמירה נכשלה — נסה שוב");
+    } finally {
+      setBusy(false);
+    }
+  };
+  const editManual = async (r, l) => {
+    const v = prompt(`עלות ליחידה (₪, לפני מע"מ) עבור:\n${l.desc}`, String(l.entry && l.entry.unitCost != null ? l.entry.unitCost : l.mapping && l.mapping.lastCost || ""));
+    if (v === null || isNaN(Number(v))) return;
+    const key = deliveryPartKey(l);
+    await getDb().collection("deliveryCosts").doc(String(r.d.no)).set({ deliveryNo: r.d.no, jobId: r.job.id, lines: { [l.idx]: { key, mode: "manual", unitCost: Number(v) } }, updatedAt: new Date().toISOString() }, { merge: true });
+    await getDb().collection("_meta").doc("madafPartMap").set({ map: { [key]: { mode: "manual", lastCost: Number(v), desc: l.desc } } }, { merge: true });
+  };
+  const print = () => {
+    const esc = t => String(t == null ? "" : t).replace(/[&<>"]/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;" })[ch]);
+    const [y, m] = month.split("-");
+    const body = rows.map(r => `<tr><td>${esc(new Date(madafDate(r.d.date)).toLocaleDateString("he-IL"))}</td><td>${esc(r.d.no)}</td><td>${esc(r.job.customerName)}</td><td>${esc(r.d.store)}</td><td>${esc(r.installer)}</td>
+      <td>${esc((r.d.lines || []).map(l => l.desc).join(" | "))}</td><td class="n">${esc(fmtILS(r.price))}</td><td class="n">${esc(fmtILS(r.cost))}${r.missing ? " *" : ""}</td>
+      <td class="n">${r.missing ? "—" : esc(fmtILS(r.profit))}</td><td class="n">${r.price && !r.missing ? r.pct.toFixed(1) + "%" : "—"}</td></tr>`).join("");
+    const w = window.open("", "_blank");
+    if (!w) {
+      alert("הדפדפן חסם את חלון ההדפסה — אפשר חלונות קופצים לאתר");
+      return;
+    }
+    w.document.write(`<!doctype html><html dir="rtl" lang="he"><head><meta charset="utf-8"><title>דוח רווחיות ${m}/${y}</title><style>
+      body{font-family:Arial,sans-serif;margin:24px;color:#111}h1{font-size:20px;margin:0 0 4px}p{margin:0 0 14px;color:#555;font-size:12px}
+      .sum{display:flex;gap:24px;margin:0 0 16px;font-size:14px}.sum b{font-size:16px}
+      table{width:100%;border-collapse:collapse;font-size:11px}th,td{border:1px solid #ccc;padding:4px 6px;text-align:right;vertical-align:top}
+      th{background:#f0f0f0}td.n{white-space:nowrap}tfoot td{font-weight:bold;background:#f7f7f7}@page{size:A4 landscape;margin:12mm}</style></head><body>
+      <h1>דוח רווחיות — ${m}/${y}</h1><p>לפי תעודות משלוח ממדף · מחירים לפני מע"מ · הופק ${new Date().toLocaleDateString("he-IL")}</p>
+      <div class="sum"><div>תעודות משלוח: <b>${rows.length}</b></div><div>מחיר: <b>${fmtILS(tot.price)}</b></div><div>עלויות: <b>${fmtILS(tot.cost)}</b></div>
+      <div>רווח: <b>${full.length ? fmtILS(totProfit) : "—"}</b></div><div>אחוז רווח: <b>${fullPrice ? totPct.toFixed(1) + "%" : "—"}</b></div></div>
+      <table><thead><tr><th>תאריך</th><th>ת. משלוח</th><th>לקוח</th><th>חנות</th><th>מתקין</th><th>פריטים</th><th>מחיר</th><th>עלות</th><th>רווח</th><th>% רווח</th></tr></thead>
+      <tbody>${body}</tbody><tfoot><tr><td colspan="6">סה"כ</td><td class="n">${fmtILS(tot.price)}</td><td class="n">${fmtILS(tot.cost)}</td><td class="n">${full.length ? fmtILS(totProfit) : "—"}</td><td class="n">${fullPrice ? totPct.toFixed(1) + "%" : "—"}</td></tr></tfoot></table>
+      ${tot.missing ? `<p style="margin-top:10px">* ב-${tot.missing} תעודות חסרה עלות לחלק מהפריטים. הרווח ואחוז הרווח מחושבים רק על ${full.length} התעודות עם עלות מלאה.</p>` : ""}
+      <script>window.onload=function(){window.print()}<\/script></body></html>`);
+    w.document.close();
+  };
+  const cell = { padding: "7px 8px", textAlign: "right" };
+  const th = { ...cell, fontWeight: 600, color: colors.textLight, fontSize: 12, background: colors.bg, whiteSpace: "nowrap" };
+  const stat = (label, value, color) => h(Card, { style: { padding: 12, flex: "1 1 140px" } }, h("div", { style: { fontSize: 12, color: colors.textLight } }, label), h("div", { style: { fontSize: 20, fontWeight: 700, color: color || colors.text } }, value));
+  const sortedStock = stockItems.slice().sort((a, b) => (a.name + a.finish).localeCompare(b.name + b.finish, "he"));
+
+  return h("div", null,
+    h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10, marginBottom: 12 } },
+      h("div", null, h("h2", { style: { margin: 0, fontSize: 22, fontWeight: 700 } }, "רווחיות לפי תעודות משלוח"),
+        h("p", { style: { margin: "4px 0 0", fontSize: 13, color: colors.textLight } }, "כל תעודת משלוח ממדף נכנסת מיד — לא מחכים לסיום העבודה. מחירים לפני מע\"מ.")),
+      h("div", { style: { display: "flex", gap: 8, alignItems: "center" } },
+        h("input", { type: "month", value: month, onChange: e => setMonth(e.target.value), style: { ...inputStyle, width: 160 } }),
+        h(Button, { onClick: print, disabled: !rows.length }, "🖨 הדפסה"))),
+    h("div", { style: { display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 14 } },
+      stat("תעודות משלוח", rows.length), stat("מחיר (לפני מע\"מ)", fmtILS(tot.price)), stat("עלויות", fmtILS(tot.cost)),
+      stat(tot.missing ? `רווח (${full.length} תעודות עם עלות מלאה)` : "רווח", full.length ? fmtILS(totProfit) : "—", totProfit >= 0 ? colors.success : colors.danger),
+      stat(tot.missing ? `אחוז רווח (${full.length} תעודות)` : "אחוז רווח", fullPrice ? totPct.toFixed(1) + "%" : "—", pctColor(totPct))),
+    tot.missing > 0 && h("div", { style: { background: colors.warningLight || "#fff4e0", color: colors.text, padding: "8px 12px", borderRadius: 8, fontSize: 13, marginBottom: 12 } },
+      `ב-${tot.missing} תעודות חסרה עלות לחלק מהפריטים. לחץ על השורה ובחר לכל פריט: מקלחון מהמלאי, או "ייצור מיוחד" עם עלות. הבחירה נזכרת לפעם הבאה.`),
+    h(Card, { style: { padding: 0, overflowX: "auto" } }, rows.length === 0 ? h("div", { style: { padding: 24, textAlign: "center", color: colors.textMuted, fontSize: 13 } }, "אין תעודות משלוח בחודש הזה.") :
+      h("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: 13 } },
+        h("thead", null, h("tr", null, ["תאריך", "ת. משלוח", "לקוח", "חנות", "מתקין", "סטטוס", "מחיר", "עלות", "רווח", "% רווח"].map(t => h("th", { key: t, style: th }, t)))),
+        h("tbody", null, rows.flatMap(r => {
+          const out = [h("tr", { key: r.d.no, onClick: () => setOpen(open === r.d.no ? null : r.d.no), style: { borderBottom: `1px solid ${colors.border}`, cursor: "pointer", background: open === r.d.no ? colors.bg : "transparent" } },
+            h("td", { style: cell }, (open === r.d.no ? "▾ " : "▸ ") + new Date(madafDate(r.d.date)).toLocaleDateString("he-IL")),
+            h("td", { style: cell }, r.d.no), h("td", { style: { ...cell, fontWeight: 600 } }, r.job.customerName), h("td", { style: cell }, r.d.store),
+            h("td", { style: cell }, r.installer || "—"), h("td", { style: cell }, r.job.isSupply ? h(Badge, { color: colors.purple || colors.primary }, "אספקה לחנות") : r.job.status === "completed" ? h(Badge, { color: colors.success }, "הושלם") : h(Badge, { color: colors.primary }, "פתוח")),
+            h("td", { style: { ...cell, fontWeight: 600 } }, fmtILS(r.price)),
+            h("td", { style: cell }, fmtILS(r.cost), r.missing ? h("span", { style: { color: colors.warning, fontWeight: 700 }, title: "חסרה עלות לחלק מהפריטים" }, " *") : null),
+            h("td", { style: { ...cell, fontWeight: 600, color: r.profit >= 0 ? colors.success : colors.danger } }, r.missing ? "—" : fmtILS(r.profit)),
+            h("td", { style: { ...cell, fontWeight: 700, color: pctColor(r.pct) } }, r.price && !r.missing ? r.pct.toFixed(1) + "%" : "—"))];
+          if (open === r.d.no) out.push(h("tr", { key: r.d.no + "-l" }, h("td", { colSpan: 10, style: { padding: "6px 14px 14px", background: colors.bg } },
+            h("table", { style: { width: "100%", borderCollapse: "collapse", fontSize: 12 } },
+              h("thead", null, h("tr", null, ["פריט במדף", "כמות", "מחיר ליח'", "מקור העלות", "עלות"].map(t => h("th", { key: t, style: th }, t)))),
+              h("tbody", null, r.lines.map(l => {
+                const modeOf = x => x.mode === "stock" ? x.stockItemId : x.mode === "none" ? NO_COST : MANUAL_COST;
+                const current = l.entry ? modeOf(l.entry) : l.mapping ? modeOf(l.mapping) : "";
+                return h("tr", { key: l.idx, style: { borderBottom: `1px solid ${colors.border}` } },
+                  h("td", { style: cell }, l.desc, h("div", { style: { fontSize: 11, color: colors.textMuted } }, "פריט " + l.part)),
+                  h("td", { style: cell }, l.qty), h("td", { style: cell }, fmtILS(l.price)),
+                  h("td", { style: cell }, h("select", { value: current, disabled: busy, onChange: e => setSource(r, l, e.target.value), style: { ...inputStyle, minWidth: 220, padding: "4px 6px" } },
+                    h("option", { value: "" }, "— בחר מקור עלות —"),
+                    h("option", { value: MANUAL_COST }, "ייצור מיוחד / עלות ידנית"),
+                    h("option", { value: NO_COST }, "ללא עלות (שירות / התקנה / לא מוצר)"),
+                    h("optgroup", { label: "מקלחון מהמלאי (לפי מחיר המכולה)" }, sortedStock.map(i => h("option", { key: i.id, value: i.id }, `${i.name}${i.finish ? " · " + i.finish : ""} (במלאי ${Number(i.stock) || 0})`)))),
+                    l.entry && l.entry.mode === "stock" && l.entry.taken && h("div", { style: { fontSize: 11, color: colors.success, marginTop: 2 } }, "ירד מהמלאי ✓")),
+                  h("td", { style: { ...cell, fontWeight: 600 } }, l.cost == null ? h("span", { style: { color: colors.warning } }, "חסר") : fmtILS(l.cost),
+                    current === MANUAL_COST && h("span", { style: { marginRight: 6, cursor: "pointer", color: colors.primary, fontSize: 12 }, onClick: () => editManual(r, l) }, " ✎ שנה")));
+              }))))));
+          return out;
+        })),
+        h("tfoot", null, h("tr", { style: { background: colors.bg, fontWeight: 700 } },
+          h("td", { colSpan: 6, style: cell }, "סה\"כ"), h("td", { style: cell }, fmtILS(tot.price)), h("td", { style: cell }, fmtILS(tot.cost)),
+          h("td", { style: { ...cell, color: totProfit >= 0 ? colors.success : colors.danger } }, full.length ? fmtILS(totProfit) : "—"),
+          h("td", { style: { ...cell, color: pctColor(totPct) } }, fullPrice ? totPct.toFixed(1) + "%" : "—"))))));
+};
+
+const ReportsPage = props => {
+  const [tab, setTab] = useState("profit");
+  return React.createElement("div", null, React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 8,
+      marginBottom: 14
+    }
+  }, React.createElement(Button, {
+    size: "sm",
+    variant: tab === "profit" ? "primary" : "outline",
+    onClick: () => setTab("profit")
+  }, "רווחיות"), React.createElement(Button, {
+    size: "sm",
+    variant: tab === "overview" ? "primary" : "outline",
+    onClick: () => setTab("overview")
+  }, "ביצועים")), tab === "profit" ? React.createElement(ProfitReport, props) : React.createElement(ReportsOverview, props));
+};
+const ReportsOverview = ({
   workOrders,
   installers,
   accounts,
@@ -12579,6 +13282,17 @@ function App() {
       reportClient(acc);
     });
   }, [dbReady, accounts, currentUser]);
+  // Products on new Madaf delivery notes leave stock automatically (items already matched once in the profit report)
+  useEffect(() => {
+    if (!dbReady || !currentUser || currentUser.role !== "admin") return;
+    const run = () => autoDeliveryStock(workOrders).catch(e => console.warn("auto delivery stock", e));
+    const t = setTimeout(run, 5000);
+    const iv = setInterval(run, 5 * 60 * 1000); // store supplies don't change workOrders — check them every few minutes too
+    return () => {
+      clearTimeout(t);
+      clearInterval(iv);
+    };
+  }, [dbReady, currentUser, workOrders]);
   // one-time: hash any plain-text passwords left in the database
   useEffect(() => {
     if (dbReady) migratePasswordsToHash();
