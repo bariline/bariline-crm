@@ -137,7 +137,7 @@ const FIREBASE_CONFIG = {
   appId: "1:1042161550667:web:61a07d439a34c4705b94ce"
 };
 
-const APP_VERSION = "2026-11-02-madaf-items";
+const APP_VERSION = "2026-11-02-stores-parts";
 // ─── Password hashing — passwords are never stored in plain text ────
 async function hashPassword(accountId, pw) {
   const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode("bariline-v1|" + String(accountId) + "|" + String(pw || "")));
@@ -4674,6 +4674,7 @@ const WorkOrdersPage = ({
   });
   const [calInstallerFilter, setCalInstallerFilter] = useState("all");
   const [installerFilter, setInstallerFilter] = useState("all");
+  const [storeFilter, setStoreFilter] = useState("");
   const [editOrder, setEditOrder] = useState(null);
   const [showDeleteOrderConfirm, setShowDeleteOrderConfirm] = useState(null);
   const statuses = initialFilter ? [initialFilter] : ["all", "pending", "scheduled", "in-progress", "pre_production", "waiting_glass", "completed", "pending_reject", "rejected", "problem"];
@@ -4709,7 +4710,7 @@ const WorkOrdersPage = ({
       mst = w.status === statusFilter;
     }
     const mInst = installerFilter === "all" || w.installerId === Number(installerFilter);
-    return ms && mst && mInst;
+    return ms && mst && mInst && storeMatches(w, storeFilter);
   }).sort((a, b) => (a.createdDate || a.scheduledDate || "") > (b.createdDate || b.scheduledDate || "") ? -1 : 1);
   const createOrder = () => {
     const installer = newOrder.installerId ? installers.find(i => String(i.id) === String(newOrder.installerId)) : null;
@@ -5701,7 +5702,10 @@ const WorkOrdersPage = ({
   }, "\u05DB\u05DC \u05D4\u05DE\u05EA\u05E7\u05D9\u05E0\u05D9\u05DD"), installers.map(inst => /*#__PURE__*/React.createElement("option", {
     key: inst.id,
     value: inst.id
-  }, inst.name))), /*#__PURE__*/React.createElement("div", {
+  }, inst.name))), role === "admin" && /*#__PURE__*/React.createElement(StoreFilter, {
+    value: storeFilter,
+    onChange: setStoreFilter
+  }), /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       gap: 4,
@@ -9435,6 +9439,29 @@ function orderHardwareLines(order) {
   });
   return Object.values(out).filter(l => l.qty !== 0);
 }
+// ─── Stores (Madaf customers list, _meta/madafStores) ────────────────────────
+// The store a job belongs to = the Madaf customer the order / delivery note was made for (not the end customer)
+const normStore = t => String(t || "").replace(/\s+/g, " ").trim();
+const jobStoreName = w => normStore(w && (w.madafDelivery && w.madafDelivery.store || w.madaf && w.madaf.store || w.store) || "");
+const storeMatches = (w, f) => !f || jobStoreName(w).includes(normStore(f));
+const StoreFilter = ({ value, onChange }) => {
+  const h = React.createElement;
+  const [names, setNames] = useState([]);
+  useEffect(() => {
+    const db = getDb();
+    if (!db) return;
+    return db.collection("_meta").doc("madafStores").onSnapshot(d => {
+      const st = d.exists && d.data().stores || {};
+      setNames([...new Set(Object.values(st).map(x => normStore(x.name)).filter(Boolean))].sort((a, b) => a.localeCompare(b, "he")));
+    }, e => console.warn("madafStores", e));
+  }, []);
+  return h("span", { style: { display: "inline-flex", alignItems: "center", gap: 4 } },
+    h("input", { list: "madaf-stores", value, onChange: e => onChange(e.target.value), placeholder: "כל החנויות",
+      style: { padding: "7px 12px", border: `1px solid ${value ? colors.primary : colors.border}`, borderRadius: 8, fontSize: 13, fontFamily: "inherit", direction: "rtl", minWidth: 170 } }),
+    value && h("span", { onClick: () => onChange(""), title: "נקה", style: { cursor: "pointer", color: colors.textMuted, fontSize: 16, padding: "0 4px" } }, "✕"),
+    h("datalist", { id: "madaf-stores" }, names.map(n => h("option", { key: n, value: n }))));
+};
+
 // ─── Containers from China (Firestore: containers) ───────────────────────────
 // The supplier's proforma (Excel) is imported, the office fills the dollar rate (which already
 // includes shipping and all costs), and every model gets its real ₪ price per unit.
@@ -9617,9 +9644,55 @@ function containerAverages(containers) {
   }));
   return { byItem, byModel };
 }
+// Madaf item numbers linked to a stock item (from the saved choices "item:<no>" → stock item)
+const partsForStock = (partMap, stockId) => Object.entries(partMap || {})
+  .filter(([k, m]) => k.startsWith("item:") && m && m.mode === "stock" && m.stockItemId === stockId).map(([k]) => k.slice(5))
+  .sort((a, b) => Number(a) - Number(b));
+const parsePartList = t => [...new Set(String(t || "").split(/[\s,،;]+/).map(x => x.trim()).filter(Boolean))];
+// Link a container product to Madaf item numbers: delivery notes with those items then take it from stock
+async function saveStockParts(partMap, catalog, line, text) {
+  const k = containerStockKey(line);
+  const id = stockItemId(k.kind, k.name, k.finish);
+  const want = parsePartList(text);
+  const have = partsForStock(partMap, id);
+  const upd = {};
+  want.filter(p => !have.includes(p)).forEach(p => {
+    upd["item:" + p] = { mode: "stock", stockItemId: id, name: k.name, finish: k.finish, desc: catalog[p] && catalog[p].name || "" };
+  });
+  have.filter(p => !want.includes(p)).forEach(p => {
+    upd["item:" + p] = firebase.firestore.FieldValue.delete();
+  });
+  if (Object.keys(upd).length) await getDb().collection("_meta").doc("madafPartMap").set({ map: upd }, { merge: true });
+}
+const PartsCell = ({ initial, render, onSave }) => {
+  const [v, setV] = useState(initial);
+  return render(v, e => setV(e.target.value), () => {
+    if (parsePartList(v).join(",") !== parsePartList(initial).join(",")) onSave(v);
+  });
+};
 const ContainersPanel = ({ containers }) => {
   const h = React.createElement;
   const [draft, setDraft] = useState(null);
+  const [partMap, setPartMap] = useState({});
+  const [catalog, setCatalog] = useState({});
+  useEffect(() => {
+    const db = getDb();
+    if (!db) return;
+    const u1 = db.collection("_meta").doc("madafPartMap").onSnapshot(d => setPartMap(d.exists && d.data().map || {}), e => console.warn("madafPartMap", e));
+    const u2 = db.collection("_meta").doc("madafItems").onSnapshot(d => setCatalog(d.exists && d.data().items || {}), e => console.warn("madafItems", e));
+    return () => {
+      u1();
+      u2();
+    };
+  }, []);
+  const lineStockId = l => {
+    const k = containerStockKey(l);
+    return stockItemId(k.kind, k.name, k.finish);
+  };
+  const partNames = text => parsePartList(text).map(p => catalog[p] ? p + " " + catalog[p].name : p + " — לא נמצא ברשימת הפריטים");
+  const partsInput = (value, onChange, onBlur) => h("div", null,
+    h("input", { value, onChange, onBlur, placeholder: "לדוגמה 576, 829", style: { ...inputStyle, width: 130, padding: "4px 6px" } }),
+    parsePartList(value).length > 0 && h("div", { style: { fontSize: 10, color: colors.textMuted, marginTop: 2, maxWidth: 220 } }, partNames(value).join(" · ")));
   const [busy, setBusy] = useState(false);
   const [open, setOpen] = useState(null);
   const [modelFilter, setModelFilter] = useState("");
@@ -9690,6 +9763,10 @@ const ContainersPanel = ({ containers }) => {
       };
       await db.collection("containers").doc(id).set(doc);
       if (draft.received) await addToStock(doc);
+      for (let i = 0; i < draftLines.length; i++) {
+        const text = draft.parts && draft.parts[i] != null ? draft.parts[i] : partsForStock(partMap, lineStockId(draftLines[i])).join(", ");
+        await saveStockParts(partMap, catalog, draftLines[i], text);
+      }
       setDraft(null);
     } catch (e) {
       console.error("container save", e);
@@ -9746,7 +9823,7 @@ const ContainersPanel = ({ containers }) => {
     h("div", { style: { display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginBottom: 12 } },
       h("input", { ref: fileRef, type: "file", accept: ".xls,.xlsx,.csv", style: { display: "none" }, onChange: e => importFile(e.target.files[0]) }),
       h(Button, { onClick: () => fileRef.current && fileRef.current.click(), disabled: busy }, Icons.plus, " ייבוא מכולה מקובץ אקסל"),
-      h("span", { style: { fontSize: 12, color: colors.textMuted } }, "קובץ ה-PI מהספק (xls / xlsx). השער שתמלא כולל הובלה וכל העלויות.")),
+      h("span", { style: { fontSize: 12, color: colors.textMuted } }, "קובץ ה-PI מהספק (xls / xlsx). השער שתמלא כולל הובלה וכל העלויות. ליד כל דגם כותבים את מספר הפריט שלו במדף — ואז כל תעודת משלוח עם הפריט מורידה אותו מהמלאי.")),
 
     draft && h(Card, { style: { marginBottom: 16, padding: 14 } },
       h("div", { style: { display: "flex", gap: 12, flexWrap: "wrap", alignItems: "flex-end", marginBottom: 12 } },
@@ -9762,8 +9839,11 @@ const ContainersPanel = ({ containers }) => {
       h("div", { style: { fontSize: 13, fontWeight: 600, margin: "4px 0 6px" } }, "שמות הדגמים בעברית (נשמרים לפעם הבאה):"),
       h("div", { style: { display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 } }, Object.keys(draft.names).map(base => h("label", { key: base, style: { display: "flex", flexDirection: "column", fontSize: 11, gap: 2, color: colors.textLight } }, base,
         h("input", { style: { ...inputStyle, width: 130 }, value: draft.names[base], onChange: e => setDraft({ ...draft, names: { ...draft.names, [base]: e.target.value } }) })))),
-      table(["דגם", "מידה", "זכוכית", "פרופיל", "כמות", "מחיר $", "מחיר ₪ ליחידה", "סה\"כ ₪", "בקובץ"], draftLines.map((l, i) => tr(i, [
-        h("b", null, l.model), l.size || "—", l.glass || "—", l.profile || "—", l.qty, fmtUSD(l.usd),
+      table(["דגם", "מידה", "זכוכית", "פרופיל", "מספר פריט במדף", "כמות", "מחיר $", "מחיר ₪ ליחידה", "סה\"כ ₪", "בקובץ"], draftLines.map((l, i) => tr(i, [
+        h("b", null, l.model), l.size || "—", l.glass || "—", l.profile || "—",
+        partsInput(draft.parts && draft.parts[i] != null ? draft.parts[i] : partsForStock(partMap, lineStockId(l)).join(", "),
+          e => setDraft({ ...draft, parts: { ...(draft.parts || {}), [i]: e.target.value } })),
+        l.qty, fmtUSD(l.usd),
         rate ? h("b", null, fmtILS(l.ils)) : "—", rate ? fmtILS(l.qty * l.ils) : "—",
         h("span", { style: { fontSize: 11, color: colors.textMuted } }, l.en, " · ", l.spec)]))),
       h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 12, flexWrap: "wrap", gap: 8 } },
@@ -9785,7 +9865,9 @@ const ContainersPanel = ({ containers }) => {
           h("span", { style: { whiteSpace: "nowrap" } }, !c.stockAdded && h(Button, { size: "sm", disabled: busy, onClick: () => receive(c) }, "הגיעה — הכנס למלאי"), " ",
             h(Button, { size: "sm", variant: "outline", disabled: busy, onClick: () => remove(c) }, "מחק"))])];
         if (open === c.id) rows.push(h("tr", { key: c.id + "-lines" }, h("td", { colSpan: 9, style: { padding: "4px 12px 12px", background: colors.bg } },
-          table(["דגם", "מידה", "זכוכית", "פרופיל", "כמות", "נשארו", "מחיר $", "מחיר ₪ ליחידה"], (c.lines || []).map((l, i) => tr(i, [l.model, l.size || "—", l.glass || "—", l.profile || "—", l.qty,
+          table(["דגם", "מידה", "זכוכית", "פרופיל", "מספר פריט במדף", "כמות", "נשארו", "מחיר $", "מחיר ₪ ליחידה"], (c.lines || []).map((l, i) => tr(i, [l.model, l.size || "—", l.glass || "—", l.profile || "—",
+            h(PartsCell, { key: lineStockId(l) + partsForStock(partMap, lineStockId(l)).join(","), initial: partsForStock(partMap, lineStockId(l)).join(", "), render: partsInput,
+              onSave: text => saveStockParts(partMap, catalog, l, text).catch(() => alert("השמירה נכשלה — נסה שוב")) }), l.qty,
             c.stockAdded ? lineRemaining(c, l) : "—", fmtUSD(l.usd), h("b", null, fmtILS(l.ils))]))))));
         return rows;
       }))),
@@ -10453,6 +10535,7 @@ const ProfitReport = ({ workOrders, installers }) => {
   const [stockItems, setStockItems] = useState([]);
   const [supplies, setSupplies] = useState([]);
   const [catalog, setCatalog] = useState({});
+  const [storeFilter, setStoreFilter] = useState("");
   const [open, setOpen] = useState(null);
   const [busy, setBusy] = useState(false);
   useEffect(() => {
@@ -10481,7 +10564,7 @@ const ProfitReport = ({ workOrders, installers }) => {
   useEffect(() => {
     if (stockItems.length && Object.keys(partMap).length) runDeliveryStock(jobs, partMap, costs, stockItems);
   }, [jobs, partMap, costs, stockItems]);
-  const rows = jobs.filter(w => madafDate(w.madafDelivery.date).slice(0, 7) === month).map(w => {
+  const rows = jobs.filter(w => madafDate(w.madafDelivery.date).slice(0, 7) === month && storeMatches(w, storeFilter)).map(w => {
     const d = w.madafDelivery;
     const c = costs[String(d.no)] || {};
     const lines = (d.lines || []).map((l, idx) => {
@@ -10570,12 +10653,12 @@ const ProfitReport = ({ workOrders, installers }) => {
       alert("הדפדפן חסם את חלון ההדפסה — אפשר חלונות קופצים לאתר");
       return;
     }
-    w.document.write(`<!doctype html><html dir="rtl" lang="he"><head><meta charset="utf-8"><title>דוח רווחיות ${m}/${y}</title><style>
+    w.document.write(`<!doctype html><html dir="rtl" lang="he"><head><meta charset="utf-8"><title>דוח רווחיות ${m}/${y}${storeFilter ? " — " + esc(storeFilter) : ""}</title><style>
       body{font-family:Arial,sans-serif;margin:24px;color:#111}h1{font-size:20px;margin:0 0 4px}p{margin:0 0 14px;color:#555;font-size:12px}
       .sum{display:flex;gap:24px;margin:0 0 16px;font-size:14px}.sum b{font-size:16px}
       table{width:100%;border-collapse:collapse;font-size:11px}th,td{border:1px solid #ccc;padding:4px 6px;text-align:right;vertical-align:top}
       th{background:#f0f0f0}td.n{white-space:nowrap}tfoot td{font-weight:bold;background:#f7f7f7}@page{size:A4 landscape;margin:12mm}</style></head><body>
-      <h1>דוח רווחיות — ${m}/${y}</h1><p>לפי תעודות משלוח ממדף · מחירים לפני מע"מ · הופק ${new Date().toLocaleDateString("he-IL")}</p>
+      <h1>דוח רווחיות — ${m}/${y}${storeFilter ? " — חנות: " + esc(storeFilter) : ""}</h1><p>לפי תעודות משלוח ממדף · מחירים לפני מע"מ · הופק ${new Date().toLocaleDateString("he-IL")}</p>
       <div class="sum"><div>תעודות משלוח: <b>${rows.length}</b></div><div>מחיר: <b>${fmtILS(tot.price)}</b></div><div>עלויות: <b>${fmtILS(tot.cost)}</b></div>
       <div>רווח: <b>${full.length ? fmtILS(totProfit) : "—"}</b></div><div>אחוז רווח: <b>${fullPrice ? totPct.toFixed(1) + "%" : "—"}</b></div></div>
       <table><thead><tr><th>תאריך</th><th>ת. משלוח</th><th>לקוח</th><th>חנות</th><th>מתקין</th><th>פריטים</th><th>מחיר</th><th>עלות</th><th>רווח</th><th>% רווח</th></tr></thead>
@@ -10594,6 +10677,7 @@ const ProfitReport = ({ workOrders, installers }) => {
       h("div", null, h("h2", { style: { margin: 0, fontSize: 22, fontWeight: 700 } }, "רווחיות לפי תעודות משלוח"),
         h("p", { style: { margin: "4px 0 0", fontSize: 13, color: colors.textLight } }, "כל תעודת משלוח ממדף נכנסת מיד — לא מחכים לסיום העבודה. מחירים לפני מע\"מ.")),
       h("div", { style: { display: "flex", gap: 8, alignItems: "center" } },
+        h(StoreFilter, { value: storeFilter, onChange: setStoreFilter }),
         h("input", { type: "month", value: month, onChange: e => setMonth(e.target.value), style: { ...inputStyle, width: 160 } }),
         h(Button, { onClick: print, disabled: !rows.length }, "🖨 הדפסה"))),
     h("div", { style: { display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 14 } },
