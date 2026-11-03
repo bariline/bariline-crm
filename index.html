@@ -137,7 +137,7 @@ const FIREBASE_CONFIG = {
   appId: "1:1042161550667:web:61a07d439a34c4705b94ce"
 };
 
-const APP_VERSION = "2026-11-03-cleanup";
+const APP_VERSION = "2026-11-04-bulk-done";
 // ─── Password hashing — passwords are never stored in plain text ────
 async function hashPassword(accountId, pw) {
   const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode("bariline-v1|" + String(accountId) + "|" + String(pw || "")));
@@ -396,7 +396,7 @@ function isModularJob(w) {
   if (cm && Array.isArray(cm.systems) && cm.systems.length && !cm.systems.includes("profile")) return false;
   return textIsModular([w.product].concat((w.madafDelivery && w.madafDelivery.lines || []).map(l => l.desc)).join(" | "));
 }
-const isWaitingModular = w => w.productType === "custom" && w.measured && w.measurementConfirmed && !w.glassReady && isModularJob(w);
+const isWaitingModular = w => w.productType === "custom" && w.status !== "completed" && w.measured && w.measurementConfirmed && !w.glassReady && isModularJob(w);
 
 // Fields that contain large base64 data — save to localStorage instead of Firestore
 const LOCAL_STORAGE_FIELDS = ["measurementPhoto", "orderPdfData", "signedWarrantyData"];
@@ -4702,6 +4702,24 @@ const WorkOrdersPage = ({
   const [installerFilter, setInstallerFilter] = useState("all");
   const [storeFilter, setStoreFilter] = useState("");
   const [editOrder, setEditOrder] = useState(null);
+  // Bulk "done" by the admin — until the installers work with the app, jobs they already did are closed here
+  const [bulkMode, setBulkMode] = useState(false);
+  const [bulkSel, setBulkSel] = useState([]);
+  const toggleBulk = id => setBulkSel(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+  const bulkComplete = () => {
+    const ids = bulkSel.filter(id => (workOrders.find(w => w.id === id) || {}).status !== "completed");
+    if (!ids.length) return;
+    if (!confirm(`לסמן ${ids.length} עבודות כבוצעו?\nביומן של כל עבודה ייכתב: "סומן כבוצע ע״י מנהל".`)) return;
+    const today = new Date().toISOString().split("T")[0];
+    setWorkOrders(prev => prev.map(w => ids.includes(w.id) ? addLog({
+      ...w,
+      status: "completed",
+      completedDate: w.completedDate || today,
+      adminCompleted: true
+    }, "admin_completed") : w));
+    setBulkSel([]);
+    setBulkMode(false);
+  };
   const [showDeleteOrderConfirm, setShowDeleteOrderConfirm] = useState(null);
   const statuses = initialFilter ? [initialFilter] : ["all", "pending", "scheduled", "in-progress", "pre_production", "waiting_glass", "completed", "pending_reject", "rejected", "problem"];
   const statusLabels = {
@@ -4719,12 +4737,12 @@ const WorkOrdersPage = ({
   };
   const statusCounts = {};
   statuses.forEach(s => {
-    if (s === "all") statusCounts[s] = visibleOrders.filter(w => w.status !== "completed" && !(w.productType === "custom" && w.measured && !w.measurementConfirmed) && !(w.productType === "custom" && w.measured && w.measurementConfirmed && !w.glassReady)).length;else if (s === "waiting_glass") statusCounts[s] = visibleOrders.filter(w => w.productType === "custom" && w.measured && w.measurementConfirmed && !w.glassReady && !(role === "admin" && isModularJob(w))).length;else if (s === "waiting_glass_nav") statusCounts[s] = visibleOrders.filter(w => w.productType === "custom" && w.measured && w.measurementConfirmed && !w.glassReady && !(role === "admin" && isModularJob(w))).length;else if (s === "pre_production") statusCounts[s] = visibleOrders.filter(w => w.productType === "custom" && w.measured && !w.measurementConfirmed).length;else statusCounts[s] = visibleOrders.filter(w => w.status === s).length;
+    if (s === "all") statusCounts[s] = visibleOrders.filter(w => w.status !== "completed" && !(w.productType === "custom" && w.status !== "completed" && w.measured && !w.measurementConfirmed) && !(w.productType === "custom" && w.status !== "completed" && w.measured && w.measurementConfirmed && !w.glassReady)).length;else if (s === "waiting_glass") statusCounts[s] = visibleOrders.filter(w => w.productType === "custom" && w.status !== "completed" && w.measured && w.measurementConfirmed && !w.glassReady && !(role === "admin" && isModularJob(w))).length;else if (s === "waiting_glass_nav") statusCounts[s] = visibleOrders.filter(w => w.productType === "custom" && w.status !== "completed" && w.measured && w.measurementConfirmed && !w.glassReady && !(role === "admin" && isModularJob(w))).length;else if (s === "pre_production") statusCounts[s] = visibleOrders.filter(w => w.productType === "custom" && w.status !== "completed" && w.measured && !w.measurementConfirmed).length;else statusCounts[s] = visibleOrders.filter(w => w.status === s).length;
   });
   const filtered = visibleOrders.filter(w => {
     const ms = w.id.toLowerCase().includes(search.toLowerCase()) || w.customerName.includes(search) || (w.installerName || "").includes(search);
-    const isPreProd = w.productType === "custom" && w.measured && !w.measurementConfirmed;
-    const isWaitGlass = w.productType === "custom" && w.measured && w.measurementConfirmed && !w.glassReady && !(role === "admin" && isModularJob(w));
+    const isPreProd = w.productType === "custom" && w.status !== "completed" && w.measured && !w.measurementConfirmed;
+    const isWaitGlass = w.productType === "custom" && w.status !== "completed" && w.measured && w.measurementConfirmed && !w.glassReady && !(role === "admin" && isModularJob(w));
     let mst;
     if (statusFilter === "all") {
       mst = w.status !== "completed" && !isPreProd && !isWaitGlass && !(role === "admin" && isWaitingModular(w));
@@ -5754,7 +5772,14 @@ const WorkOrdersPage = ({
     variant: viewMode === "calendar" ? "primary" : "outline",
     size: "sm",
     onClick: () => setViewMode("calendar")
-  }, Icons.calendar, " \u05DC\u05D5\u05D7 \u05D7\u05D5\u05D3\u05E9\u05D9"))), /*#__PURE__*/React.createElement(TabBar, {
+  }, Icons.calendar, " \u05DC\u05D5\u05D7 \u05D7\u05D5\u05D3\u05E9\u05D9"), role === "admin" && viewMode === "list" && /*#__PURE__*/React.createElement(Button, {
+    variant: bulkMode ? "success" : "outline",
+    size: "sm",
+    onClick: () => {
+      setBulkMode(!bulkMode);
+      setBulkSel([]);
+    }
+  }, Icons.check, " סימון כבוצע"))), /*#__PURE__*/React.createElement(TabBar, {
     tabs: statuses.map(s => ({
       key: s,
       label: statusLabels[s],
@@ -5990,7 +6015,46 @@ const WorkOrdersPage = ({
         }
       }, "(", count, ")")) : null;
     })));
-  })(), viewMode === "list" && /*#__PURE__*/React.createElement("div", {
+  })(), viewMode === "list" && bulkMode && /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 8,
+      flexWrap: "wrap",
+      padding: "10px 12px",
+      marginBottom: 8,
+      background: colors.success + "12",
+      border: `1px solid ${colors.success}55`,
+      borderRadius: 10,
+      position: "sticky",
+      top: 0,
+      zIndex: 5
+    }
+  }, /*#__PURE__*/React.createElement("b", {
+    style: { fontSize: 13 }
+  }, `נבחרו ${bulkSel.length}`), /*#__PURE__*/React.createElement("span", {
+    style: { fontSize: 12, color: colors.textMuted }
+  }, "לחצו על עבודות כדי לבחור"), /*#__PURE__*/React.createElement(Button, {
+    size: "sm",
+    variant: "outline",
+    onClick: () => setBulkSel(filtered.filter(w => w.status !== "completed").map(w => w.id))
+  }, `בחר את כל המוצגים (${filtered.filter(w => w.status !== "completed").length})`), bulkSel.length > 0 && /*#__PURE__*/React.createElement(Button, {
+    size: "sm",
+    variant: "ghost",
+    onClick: () => setBulkSel([])
+  }, "נקה בחירה"), /*#__PURE__*/React.createElement(Button, {
+    size: "sm",
+    variant: "success",
+    disabled: !bulkSel.length,
+    onClick: bulkComplete
+  }, Icons.check, ` סמן ${bulkSel.length} כבוצע`), /*#__PURE__*/React.createElement(Button, {
+    size: "sm",
+    variant: "ghost",
+    onClick: () => {
+      setBulkMode(false);
+      setBulkSel([]);
+    }
+  }, "ביטול")), viewMode === "list" && /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       flexDirection: "column",
@@ -6000,14 +6064,19 @@ const WorkOrdersPage = ({
     const daysLeft = getDaysRemaining(wo.createdDate || wo.scheduledDate);
     const isStandard = wo.productType === "standard";
     const customStep = !isStandard ? getCustomWorkflowStep(wo) : null;
+    const picked = bulkMode && bulkSel.includes(wo.id);
     return /*#__PURE__*/React.createElement(Card, {
       key: wo.id,
-      onClick: () => setSelected(wo),
+      onClick: () => bulkMode ? wo.status !== "completed" && toggleBulk(wo.id) : setSelected(wo),
       style: {
         padding: "12px 14px",
-        cursor: "pointer"
+        cursor: "pointer",
+        ...(picked ? { border: `2px solid ${colors.success}`, background: colors.success + "0d" } : {}),
+        ...(bulkMode && wo.status === "completed" ? { opacity: 0.5 } : {})
       }
-    }, /*#__PURE__*/React.createElement("div", {
+    }, bulkMode && /*#__PURE__*/React.createElement("div", {
+      style: { fontSize: 12, fontWeight: 700, color: picked ? colors.success : colors.textMuted, marginBottom: 4 }
+    }, wo.status === "completed" ? "✔ כבר הושלם" : picked ? "☑ נבחר" : "☐ לא נבחר"), /*#__PURE__*/React.createElement("div", {
       style: {
         display: "flex",
         alignItems: "start",
@@ -7145,7 +7214,7 @@ const WorkOrdersPage = ({
         fontSize: 12,
         fontWeight: 600
       }
-    }, log.action === "assigned" && `${log.by} לקח עבודה — התקנה ל-${log.scheduledDate}`, log.action === "measured" && `${log.by} — מדידה בוצעה`, log.action === "measurement_confirmed" && "מנהל אישר מדידה — נשלח לייצור", log.action === "remeasure_requested" && "מנהל ביקש מדידה חוזרת", log.action === "drawing_saved" && "שרטוט נשמר בהזמנה", log.action === "quote_approved" && `מנהל אישר מחיר — ₪${(log.amount || 0).toLocaleString()}`, log.action === "started" && `${log.by} — התחיל עבודה`, log.action === "completed" && `${log.by} — סיים עבודה + חתימה`, log.action === "cancelled" && "הזמנה בוטלה (לקוח ביטל)", log.action === "reject_requested" && `${log.by} ביקש ביטול — ${log.reason}`, log.action === "reject_approved" && `מנהל אישר ביטול — מוצר ${log.productReturned ? "חזר למחסן" : "לא חזר למחסן"}`, log.action === "reject_denied" && "מנהל דחה בקשת ביטול — הוחזר לעבודה", log.action === "status_change" && `סטטוס שונה`, log.action === "photo_before" && `${log.by} — צילם לפני`, log.action === "photo_after" && `${log.by} — צילם אחרי`, log.action === "rematch_assigned" && `${log.by} שובץ מחדש (זכוכית מוכנה) — התקנה ל-${log.scheduledDate}`, log.action === "glass_ready" && "מנהל סימן זכוכית מוכנה", log.action === "modular_done" && "מנהל סיים פענוח מודולרי — הפריטים ירדו מהמלאי", log.action === "modular_undo" && "מנהל ביטל פענוח מודולרי — הפריטים חזרו למלאי", log.action === "admin_reassign" && `מנהל שינה מתקין ל-${log.newInstaller}`, log.action === "problem_reported" && `${log.by} — דיווח בעיה`, log.action === "installer_note" && `${log.by} — הערה: ${log.note}`), /*#__PURE__*/React.createElement("div", {
+    }, log.action === "assigned" && `${log.by} לקח עבודה — התקנה ל-${log.scheduledDate}`, log.action === "measured" && `${log.by} — מדידה בוצעה`, log.action === "measurement_confirmed" && "מנהל אישר מדידה — נשלח לייצור", log.action === "remeasure_requested" && "מנהל ביקש מדידה חוזרת", log.action === "drawing_saved" && "שרטוט נשמר בהזמנה", log.action === "quote_approved" && `מנהל אישר מחיר — ₪${(log.amount || 0).toLocaleString()}`, log.action === "started" && `${log.by} — התחיל עבודה`, log.action === "completed" && `${log.by} — סיים עבודה + חתימה`, log.action === "cancelled" && "הזמנה בוטלה (לקוח ביטל)", log.action === "reject_requested" && `${log.by} ביקש ביטול — ${log.reason}`, log.action === "reject_approved" && `מנהל אישר ביטול — מוצר ${log.productReturned ? "חזר למחסן" : "לא חזר למחסן"}`, log.action === "reject_denied" && "מנהל דחה בקשת ביטול — הוחזר לעבודה", log.action === "status_change" && `סטטוס שונה`, log.action === "photo_before" && `${log.by} — צילם לפני`, log.action === "photo_after" && `${log.by} — צילם אחרי`, log.action === "rematch_assigned" && `${log.by} שובץ מחדש (זכוכית מוכנה) — התקנה ל-${log.scheduledDate}`, log.action === "glass_ready" && "מנהל סימן זכוכית מוכנה", log.action === "admin_completed" && "סומן כבוצע ע״י מנהל", log.action === "modular_done" && "מנהל סיים פענוח מודולרי — הפריטים ירדו מהמלאי", log.action === "modular_undo" && "מנהל ביטל פענוח מודולרי — הפריטים חזרו למלאי", log.action === "admin_reassign" && `מנהל שינה מתקין ל-${log.newInstaller}`, log.action === "problem_reported" && `${log.by} — דיווח בעיה`, log.action === "installer_note" && `${log.by} — הערה: ${log.note}`), /*#__PURE__*/React.createElement("div", {
       style: {
         fontSize: 11,
         color: colors.textMuted
@@ -14566,8 +14635,8 @@ function App() {
     }
   }, navItems.map(item => {
     const openSCCount = item.key === "service" ? serviceCalls.filter(sc => sc.status !== "completed").length : 0;
-    const preProductionCount = item.key === "pre_production" ? workOrders.filter(w => w.productType === "custom" && w.measured && !w.measurementConfirmed).length : 0;
-    const waitingGlassCount = item.key === "waiting_glass" ? workOrders.filter(w => w.productType === "custom" && w.measured && w.measurementConfirmed && !w.glassReady && !(isAdmin && isModularJob(w))).length : 0;
+    const preProductionCount = item.key === "pre_production" ? workOrders.filter(w => w.productType === "custom" && w.status !== "completed" && w.measured && !w.measurementConfirmed).length : 0;
+    const waitingGlassCount = item.key === "waiting_glass" ? workOrders.filter(w => w.productType === "custom" && w.status !== "completed" && w.measured && w.measurementConfirmed && !w.glassReady && !(isAdmin && isModularJob(w))).length : 0;
     const modularCount = item.key === "modular" ? workOrders.filter(isWaitingModular).length : 0;
     const badgeCount = openSCCount || preProductionCount || waitingGlassCount || modularCount;
     const isHighlighted = badgeCount > 0 && page !== item.key;
