@@ -563,7 +563,7 @@ body.bl-view input, body.bl-view select, body.bl-view textarea{background:#f5f5f
       const summary = full.split('\n').filter(l => l && !l.startsWith('http') && l !== 'קישור למדידה (לפתיחה במערכת):').join('\n');
       let photo = null;
       if (PHOTO) { try { photo = await blobToDataUrl(PHOTO); } catch (e) {} }
-      window.parent.postMessage({ type: 'bariline:measurement', hash, summary, photo, measuredBy: SET.installer || '' }, location.origin);
+      window.parent.postMessage({ type: 'bariline:measurement', hash, summary, photo, measuredBy: SET.installer || '', systems: (window.blSystems ? window.blSystems() : []) }, location.origin);
     } catch (e) {
       save.disabled = false; msg.textContent = 'השמירה נכשלה: ' + (e && e.message || e); msg.className = 'msg err';
     }
@@ -576,5 +576,39 @@ body.bl-view input, body.bl-view select, body.bl-view textarea{background:#f5f5f
 })();
 </script>
 
+<!-- ===== Bariline add-on: shower system (פרופיל / צירים נקיים), asked before measuring. Original code above is unchanged. ===== -->
+<style>
+#blSys{display:flex;gap:8px;margin-bottom:10px;align-items:center;flex-wrap:wrap}
+#blSys button{flex:1;min-width:120px}
+#blSys button.on{background:#1a237e;color:#fff;border-color:#1a237e}
+#blSys .need{color:#b4540a;font-weight:600;font-size:13px;width:100%}
+#blSysView{font-weight:700;margin-bottom:8px;display:none}
+body.bl-view #blSysView{display:block}
+</style>
+<script>
+(function(){
+  const SYS = { profile: 'פרופיל', clean: 'צירים נקיים' };
+  const kind = document.querySelector('.kind');
+  if (!kind) return;
+  const box = document.createElement('div'); box.id = 'blSys';
+  box.innerHTML = '<button type="button" data-s="profile">פרופיל</button><button type="button" data-s="clean">צירים נקיים</button><div class="need" id="blSysNeed">בחרו קודם: פרופיל או צירים נקיים</div>';
+  const view = document.createElement('div'); view.id = 'blSysView';
+  kind.parentNode.insertBefore(view, kind); kind.parentNode.insertBefore(box, kind);
+  const paint = () => {
+    box.querySelectorAll('[data-s]').forEach(b => b.classList.toggle('on', O.system === b.dataset.s));
+    document.getElementById('blSysNeed').style.display = O.system ? 'none' : '';
+    view.textContent = 'סוג: ' + (SYS[O.system] || 'לא צוין');
+  };
+  box.querySelectorAll('[data-s]').forEach(b => b.onclick = () => { O.system = b.dataset.s; paint(); try { renderStrip(); } catch (e) {} });
+  const origSelect = selectOpt;
+  selectOpt = function (i, j) { origSelect(i, j); paint(); };
+  const origWarnings = warnings;
+  warnings = function () { const w = origWarnings(); M.items.forEach((it, i) => it.opts.forEach((o, j) => { if (!o.system) w.push(optLabel(i, j) + ': לא נבחר פרופיל / צירים נקיים'); })); return w; };
+  const origDescribe = describeOpt;
+  describeOpt = function (o) { return (SYS[o.system] ? SYS[o.system] + ' · ' : '') + origDescribe(o); };
+  window.blSystems = () => { const out = []; M.items.forEach(it => it.opts.forEach(o => { if (o.system && !out.includes(o.system)) out.push(o.system); })); return out; };
+  paint(); setTimeout(paint, 300); setTimeout(paint, 1200);
+})();
+</script>
 </body>
 </html>

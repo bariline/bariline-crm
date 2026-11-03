@@ -137,7 +137,7 @@ const FIREBASE_CONFIG = {
   appId: "1:1042161550667:web:61a07d439a34c4705b94ce"
 };
 
-const APP_VERSION = "2026-11-02-stores-parts";
+const APP_VERSION = "2026-11-03-cleanup";
 // ─── Password hashing — passwords are never stored in plain text ────
 async function hashPassword(accountId, pw) {
   const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode("bariline-v1|" + String(accountId) + "|" + String(pw || "")));
@@ -367,10 +367,36 @@ function withIntegrationDefaults(order) {
   });
   return out;
 }
+// When a job was added: exact time if known (new CRM jobs: createdAt; Madaf jobs: the first log line), else the day
+function jobAddedKey(w) {
+  if (!w) return "";
+  if (w.createdAt) return String(w.createdAt).replace("T", " ").slice(0, 19);
+  const first = Array.isArray(w.activityLog) && w.activityLog[0];
+  if (first && first.date && first.time && (!w.createdDate || first.date === w.createdDate)) return first.date + " " + first.time;
+  return (w.createdDate || w.scheduledDate || "") + " 00:00";
+}
+const jobIdNum = w => Number(String(w && w.id || "").replace(/\D/g, "")) || 0;
+const newestFirst = (a, b) => jobAddedKey(b).localeCompare(jobAddedKey(a)) || jobIdNum(b) - jobIdNum(a);
 function currentMeasurement(order) {
   const list = order && Array.isArray(order.measurements) ? order.measurements : [];
   return list.length ? list[list.length - 1] : null;
 }
+// ─── Modular models (פענוח מודולרי) ────
+// Some models are built from standard stock items to the customer's sizes. Their names are kept in
+// _meta/modularModels {names:[]}. After "אשר מדידה" such a job goes to "פענוח מודולרי" (not "ממתין לזכוכית"):
+// the admin picks the stock items (0.5 allowed), and finishing takes them out of stock and works like "זכוכית מוכנה".
+let MODULAR_NAMES = [];
+const normModular = t => String(t || "").replace(/\s+/g, " ").trim().toLowerCase();
+const textIsModular = t => MODULAR_NAMES.some(n => normModular(n) && normModular(t).includes(normModular(n)));
+function isModularJob(w) {
+  if (!w || w.modular === false) return false;
+  if (w.modular === true || w.modularDecode) return true;
+  if (w.productType !== "custom") return false;
+  const cm = currentMeasurement(w);
+  if (cm && Array.isArray(cm.systems) && cm.systems.length && !cm.systems.includes("profile")) return false;
+  return textIsModular([w.product].concat((w.madafDelivery && w.madafDelivery.lines || []).map(l => l.desc)).join(" | "));
+}
+const isWaitingModular = w => w.productType === "custom" && w.measured && w.measurementConfirmed && !w.glassReady && isModularJob(w);
 
 // Fields that contain large base64 data — save to localStorage instead of Firestore
 const LOCAL_STORAGE_FIELDS = ["measurementPhoto", "orderPdfData", "signedWarrantyData"];
@@ -4693,15 +4719,15 @@ const WorkOrdersPage = ({
   };
   const statusCounts = {};
   statuses.forEach(s => {
-    if (s === "all") statusCounts[s] = visibleOrders.filter(w => w.status !== "completed" && !(w.productType === "custom" && w.measured && !w.measurementConfirmed) && !(w.productType === "custom" && w.measured && w.measurementConfirmed && !w.glassReady)).length;else if (s === "waiting_glass") statusCounts[s] = visibleOrders.filter(w => w.productType === "custom" && w.measured && w.measurementConfirmed && !w.glassReady).length;else if (s === "waiting_glass_nav") statusCounts[s] = visibleOrders.filter(w => w.productType === "custom" && w.measured && w.measurementConfirmed && !w.glassReady).length;else if (s === "pre_production") statusCounts[s] = visibleOrders.filter(w => w.productType === "custom" && w.measured && !w.measurementConfirmed).length;else statusCounts[s] = visibleOrders.filter(w => w.status === s).length;
+    if (s === "all") statusCounts[s] = visibleOrders.filter(w => w.status !== "completed" && !(w.productType === "custom" && w.measured && !w.measurementConfirmed) && !(w.productType === "custom" && w.measured && w.measurementConfirmed && !w.glassReady)).length;else if (s === "waiting_glass") statusCounts[s] = visibleOrders.filter(w => w.productType === "custom" && w.measured && w.measurementConfirmed && !w.glassReady && !(role === "admin" && isModularJob(w))).length;else if (s === "waiting_glass_nav") statusCounts[s] = visibleOrders.filter(w => w.productType === "custom" && w.measured && w.measurementConfirmed && !w.glassReady && !(role === "admin" && isModularJob(w))).length;else if (s === "pre_production") statusCounts[s] = visibleOrders.filter(w => w.productType === "custom" && w.measured && !w.measurementConfirmed).length;else statusCounts[s] = visibleOrders.filter(w => w.status === s).length;
   });
   const filtered = visibleOrders.filter(w => {
     const ms = w.id.toLowerCase().includes(search.toLowerCase()) || w.customerName.includes(search) || (w.installerName || "").includes(search);
     const isPreProd = w.productType === "custom" && w.measured && !w.measurementConfirmed;
-    const isWaitGlass = w.productType === "custom" && w.measured && w.measurementConfirmed && !w.glassReady;
+    const isWaitGlass = w.productType === "custom" && w.measured && w.measurementConfirmed && !w.glassReady && !(role === "admin" && isModularJob(w));
     let mst;
     if (statusFilter === "all") {
-      mst = w.status !== "completed" && !isPreProd && !isWaitGlass;
+      mst = w.status !== "completed" && !isPreProd && !isWaitGlass && !(role === "admin" && isWaitingModular(w));
     } else if (statusFilter === "waiting_glass" || statusFilter === "waiting_glass_nav") {
       mst = isWaitGlass;
     } else if (statusFilter === "pre_production") {
@@ -4711,11 +4737,12 @@ const WorkOrdersPage = ({
     }
     const mInst = installerFilter === "all" || w.installerId === Number(installerFilter);
     return ms && mst && mInst && storeMatches(w, storeFilter);
-  }).sort((a, b) => (a.createdDate || a.scheduledDate || "") > (b.createdDate || b.scheduledDate || "") ? -1 : 1);
+  }).sort(newestFirst); // newest added job always on top (admin and installer)
   const createOrder = () => {
     const installer = newOrder.installerId ? installers.find(i => String(i.id) === String(newOrder.installerId)) : null;
     const order = {
       id: nextWorkOrderId(workOrders),
+      createdAt: new Date().toISOString(),
       customerId: null,
       customerName: newOrder.customerName,
       customerPhone: newOrder.customerPhone,
@@ -4811,7 +4838,12 @@ const WorkOrdersPage = ({
       color: "#f59e0b",
       icon: Icons.ruler
     };
-    if (!wo.glassReady) return {
+    if (!wo.glassReady) return isModularJob(wo) ? {
+      step: 3,
+      label: "ממתין לפענוח מודולרי",
+      color: colors.purple,
+      icon: Icons.inventory
+    } : {
       step: 3,
       label: "ממתין לזכוכית",
       color: colors.purple,
@@ -4840,7 +4872,7 @@ const WorkOrdersPage = ({
     if (wo && !wo.stockDeducted) {
       const lines = orderHardwareLines(wo);
       if (lines.length === 0) {
-        if (!confirm("\u05D0\u05D9\u05DF \u05E9\u05E8\u05D8\u05D5\u05D8 \u05E9\u05DE\u05D5\u05E8 \u05D1\u05D4\u05D6\u05DE\u05E0\u05D4 \u2014 \u05D4\u05E4\u05E8\u05D6\u05D5\u05DC \u05DC\u05D0 \u05D9\u05E8\u05D3 \u05DE\u05D4\u05DE\u05DC\u05D0\u05D9. \u05DC\u05E9\u05DC\u05D5\u05D7 \u05DC\u05D9\u05D9\u05E6\u05D5\u05E8 \u05D1\u05DB\u05DC \u05D6\u05D0\u05EA?")) return;
+        if (!isModularJob(wo) && !confirm("\u05D0\u05D9\u05DF \u05E9\u05E8\u05D8\u05D5\u05D8 \u05E9\u05DE\u05D5\u05E8 \u05D1\u05D4\u05D6\u05DE\u05E0\u05D4 \u2014 \u05D4\u05E4\u05E8\u05D6\u05D5\u05DC \u05DC\u05D0 \u05D9\u05E8\u05D3 \u05DE\u05D4\u05DE\u05DC\u05D0\u05D9. \u05DC\u05E9\u05DC\u05D5\u05D7 \u05DC\u05D9\u05D9\u05E6\u05D5\u05E8 \u05D1\u05DB\u05DC \u05D6\u05D0\u05EA?")) return;
       } else {
         try {
           await stockAdjust(lines, {
@@ -5026,14 +5058,16 @@ const WorkOrdersPage = ({
           hash,
           summary,
           photo,
-          measuredBy
+          measuredBy,
+          systems
         } = e.data;
         if (!hash || typeof hash !== "string") throw new Error("no hash");
         const entry = {
           hash,
           summary: summary || "",
           submittedAt: new Date().toISOString(),
-          submittedBy: measuredBy || ""
+          submittedBy: measuredBy || "",
+          systems: Array.isArray(systems) ? systems.filter(x => x === "profile" || x === "clean") : []
         };
         const compressedPhoto = photo ? await compressImage(photo) : null;
         const today = new Date().toISOString().split("T")[0];
@@ -5455,6 +5489,7 @@ const WorkOrdersPage = ({
     const matchedInstaller = fields.installerName ? installers.find(i => i.name.includes(fields.installerName) || fields.installerName.includes(i.name.split(" ")[0])) : null;
     const newWO = {
       id: woId,
+      createdAt: new Date().toISOString(),
       customerId: null,
       customerName: fields.customerName,
       customerPhone: fields.customerPhone,
@@ -6528,7 +6563,7 @@ const WorkOrdersPage = ({
       done: selected.measurementConfirmed,
       date: selected.measurementConfirmedDate
     }, {
-      label: "זכוכית מוכנה",
+      label: isModularJob(selected) ? "פענוח מודולרי" : "זכוכית מוכנה",
       done: selected.glassReady,
       date: selected.glassReadyDate
     }, {
@@ -6613,7 +6648,14 @@ const WorkOrdersPage = ({
         fontWeight: 600,
         padding: "6px 0"
       }
-    }, Icons.warning, " \u05DE\u05D3\u05D9\u05D3\u05D4 \u05D1\u05D5\u05E6\u05E2\u05D4 \u2014 \u05DE\u05DE\u05EA\u05D9\u05DF \u05DC\u05D0\u05D9\u05E9\u05D5\u05E8 \u05DE\u05E0\u05D4\u05DC"), selected.measurementConfirmed && !selected.glassReady && role === "admin" && /*#__PURE__*/React.createElement(Button, {
+    }, Icons.warning, " \u05DE\u05D3\u05D9\u05D3\u05D4 \u05D1\u05D5\u05E6\u05E2\u05D4 \u2014 \u05DE\u05DE\u05EA\u05D9\u05DF \u05DC\u05D0\u05D9\u05E9\u05D5\u05E8 \u05DE\u05E0\u05D4\u05DC"), selected.measurementConfirmed && !selected.glassReady && role === "admin" && isModularJob(selected) && /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 12,
+        color: colors.purple,
+        fontWeight: 600,
+        padding: "6px 0"
+      }
+    }, Icons.inventory, " דגם מודולרי — לבחירת הפריטים מהמלאי: עמוד \"פענוח מודולרי\""), selected.measurementConfirmed && !selected.glassReady && role === "admin" && !isModularJob(selected) && /*#__PURE__*/React.createElement(Button, {
       size: "sm",
       onClick: () => {
         markGlassReady(selected.id);
@@ -6629,7 +6671,23 @@ const WorkOrdersPage = ({
         color: colors.textMuted,
         padding: "6px 0"
       }
-    }, "\u05E0\u05E9\u05DC\u05D7 \u05DC\u05D9\u05D9\u05E6\u05D5\u05E8 \u2014 \u05DE\u05DE\u05EA\u05D9\u05DF \u05DC\u05D6\u05DB\u05D5\u05DB\u05D9\u05EA")), currentMeasurement(selected) && /*#__PURE__*/React.createElement("div", {
+    }, isModularJob(selected) ? "בהכנה במפעל" : "\u05E0\u05E9\u05DC\u05D7 \u05DC\u05D9\u05D9\u05E6\u05D5\u05E8 \u2014 \u05DE\u05DE\u05EA\u05D9\u05DF \u05DC\u05D6\u05DB\u05D5\u05DB\u05D9\u05EA"), role === "admin" && selected.productType === "custom" && !selected.glassReady && /*#__PURE__*/React.createElement("button", {
+      onClick: () => {
+        const val = !isModularJob(selected);
+        setWorkOrders(prev => prev.map(w => w.id === selected.id ? { ...w, modular: val } : w));
+        setSelected({ ...selected, modular: val });
+      },
+      style: {
+        background: "none",
+        border: "none",
+        color: colors.textMuted,
+        fontSize: 11,
+        textDecoration: "underline",
+        cursor: "pointer",
+        padding: "4px 0",
+        fontFamily: "inherit"
+      }
+    }, isModularJob(selected) ? "זה לא דגם מודולרי" : "סמן כדגם מודולרי")), currentMeasurement(selected) && /*#__PURE__*/React.createElement("div", {
       style: {
         marginTop: 12,
         padding: 10,
@@ -7087,7 +7145,7 @@ const WorkOrdersPage = ({
         fontSize: 12,
         fontWeight: 600
       }
-    }, log.action === "assigned" && `${log.by} לקח עבודה — התקנה ל-${log.scheduledDate}`, log.action === "measured" && `${log.by} — מדידה בוצעה`, log.action === "measurement_confirmed" && "מנהל אישר מדידה — נשלח לייצור", log.action === "remeasure_requested" && "מנהל ביקש מדידה חוזרת", log.action === "drawing_saved" && "שרטוט נשמר בהזמנה", log.action === "quote_approved" && `מנהל אישר מחיר — ₪${(log.amount || 0).toLocaleString()}`, log.action === "started" && `${log.by} — התחיל עבודה`, log.action === "completed" && `${log.by} — סיים עבודה + חתימה`, log.action === "cancelled" && "הזמנה בוטלה (לקוח ביטל)", log.action === "reject_requested" && `${log.by} ביקש ביטול — ${log.reason}`, log.action === "reject_approved" && `מנהל אישר ביטול — מוצר ${log.productReturned ? "חזר למחסן" : "לא חזר למחסן"}`, log.action === "reject_denied" && "מנהל דחה בקשת ביטול — הוחזר לעבודה", log.action === "status_change" && `סטטוס שונה`, log.action === "photo_before" && `${log.by} — צילם לפני`, log.action === "photo_after" && `${log.by} — צילם אחרי`, log.action === "rematch_assigned" && `${log.by} שובץ מחדש (זכוכית מוכנה) — התקנה ל-${log.scheduledDate}`, log.action === "glass_ready" && "מנהל סימן זכוכית מוכנה", log.action === "admin_reassign" && `מנהל שינה מתקין ל-${log.newInstaller}`, log.action === "problem_reported" && `${log.by} — דיווח בעיה`, log.action === "installer_note" && `${log.by} — הערה: ${log.note}`), /*#__PURE__*/React.createElement("div", {
+    }, log.action === "assigned" && `${log.by} לקח עבודה — התקנה ל-${log.scheduledDate}`, log.action === "measured" && `${log.by} — מדידה בוצעה`, log.action === "measurement_confirmed" && "מנהל אישר מדידה — נשלח לייצור", log.action === "remeasure_requested" && "מנהל ביקש מדידה חוזרת", log.action === "drawing_saved" && "שרטוט נשמר בהזמנה", log.action === "quote_approved" && `מנהל אישר מחיר — ₪${(log.amount || 0).toLocaleString()}`, log.action === "started" && `${log.by} — התחיל עבודה`, log.action === "completed" && `${log.by} — סיים עבודה + חתימה`, log.action === "cancelled" && "הזמנה בוטלה (לקוח ביטל)", log.action === "reject_requested" && `${log.by} ביקש ביטול — ${log.reason}`, log.action === "reject_approved" && `מנהל אישר ביטול — מוצר ${log.productReturned ? "חזר למחסן" : "לא חזר למחסן"}`, log.action === "reject_denied" && "מנהל דחה בקשת ביטול — הוחזר לעבודה", log.action === "status_change" && `סטטוס שונה`, log.action === "photo_before" && `${log.by} — צילם לפני`, log.action === "photo_after" && `${log.by} — צילם אחרי`, log.action === "rematch_assigned" && `${log.by} שובץ מחדש (זכוכית מוכנה) — התקנה ל-${log.scheduledDate}`, log.action === "glass_ready" && "מנהל סימן זכוכית מוכנה", log.action === "modular_done" && "מנהל סיים פענוח מודולרי — הפריטים ירדו מהמלאי", log.action === "modular_undo" && "מנהל ביטל פענוח מודולרי — הפריטים חזרו למלאי", log.action === "admin_reassign" && `מנהל שינה מתקין ל-${log.newInstaller}`, log.action === "problem_reported" && `${log.by} — דיווח בעיה`, log.action === "installer_note" && `${log.by} — הערה: ${log.note}`), /*#__PURE__*/React.createElement("div", {
       style: {
         fontSize: 11,
         color: colors.textMuted
@@ -8839,7 +8897,7 @@ const QuotesPendingPage = ({
     const inst = installers.find(i => String(i.id) === String(wo.installerId));
     if (inst) {
       const waitGlass = wo.productType === "custom" && !wo.glassReady;
-      const msg = `שלום ${inst.name.trim()},\n\nהחנות אישרה את הצעת המחיר ✅\n\nלקוח: ${wo.customerName}\nטלפון: ${wo.customerPhone || "—"}\nכתובת: ${wo.address || "—"}\nמוצר: ${wo.product || "—"}\n\n${waitGlass ? "הזכוכית יוצאת לייצור — נעדכן כשתהיה מוכנה." : "העבודה מוכנה להתקנה — נא לתאם מועד עם הלקוח."}\n\nפרטים במערכת:\nhttps://bariline.github.io/bariline-crm/`;
+      const msg = `שלום ${inst.name.trim()},\n\nהחנות אישרה את הצעת המחיר ✅\n\nלקוח: ${wo.customerName}\nטלפון: ${wo.customerPhone || "—"}\nכתובת: ${wo.address || "—"}\nמוצר: ${wo.product || "—"}\n\n${waitGlass ? (isModularJob(wo) ? "המקלחון בהכנה במפעל — נעדכן כשיהיה מוכן." : "הזכוכית יוצאת לייצור — נעדכן כשתהיה מוכנה.") : "העבודה מוכנה להתקנה — נא לתאם מועד עם הלקוח."}\n\nפרטים במערכת:\nhttps://bariline.github.io/bariline-crm/`;
       openWhatsApp(inst.phone, msg);
     }
     setWorkOrders(prev => prev.map(w => w.id === wo.id ? {
@@ -9367,6 +9425,553 @@ const CustomersPage = ({
   })))));
 };
 
+// ─── Modular calculation (פענוח מודולרי — suggestion for the admin to approve) ────
+// Rules from the factory (2026-11-03):
+// • door = the door width the installer measured, +4 cm only when the door connects to a fixed panel
+//   (door or fixed against the wall: nothing added)
+// • front (wall to wall) and doors next to a fixed panel: a door is half of a 2-door פאלאס front:
+//   front = door × 2, range of 5 (100 → 100-105), 0.5 unit; פאלאס goes up to 140
+// • corner with doors only (no fixed panel next to the door): corner door items with a 2.5 range
+//   ("2 דלתות על ציר 72.5-75", "ניו יורק 80 מלא (80-82.5)" …). The range is the profile edge; the installer
+//   measures mid-glass, so edge = door + 2. 0.5 unit (one of the 2 corner doors)
+// • warn when less than 0.5 cm from the top or from the minimum of the range
+// • fixed panel = the size the installer wrote → "קיר צד וושינגטון <size>", 1 unit (קולורדו / אלסקה: by hand)
+// • same glass + profile as the measurement (profile: שחור, everything else = ניקל); מרובע only when asked
+// • only measurements marked "פרופיל" are calculated
+const MODULAR_RULES = { addToFixed: 4, palaceMax: 140, rangeStep: 5, cornerStep: 2.5, midToEdge: 2, spare: 0.5, manualFixedModels: ["קולורדו", "אלסקה"] };
+// Measurement hash (from measure.html) → measurement object. Same format as the measurement app's own reader.
+async function readMeasureHash(str) {
+  if (!str || typeof str !== "string") return null;
+  const i = str.indexOf(".");
+  const kind = str.slice(0, i);
+  const b64 = str.slice(i + 1).replace(/-/g, "+").replace(/_/g, "/");
+  const bin = atob(b64 + "===".slice((b64.length + 3) % 4));
+  let u8 = new Uint8Array(bin.length);
+  for (let k = 0; k < bin.length; k++) u8[k] = bin.charCodeAt(k);
+  if (kind === "z") {
+    const ds = new DecompressionStream("deflate-raw");
+    const w = ds.writable.getWriter();
+    w.write(u8);
+    w.close();
+    u8 = new Uint8Array(await new Response(ds.readable).arrayBuffer());
+  }
+  return JSON.parse(new TextDecoder().decode(u8));
+}
+const glassWord = g => {
+  const t = String(g || "");
+  if (t.includes("גלינה")) return "גלינה";
+  if (t.includes("פס")) return "פסים";
+  if (t.includes("גרניט") || t.includes("פיפיטה")) return "גרניט";
+  if (t.includes("שקו")) return "שקוף";
+  return t.trim();
+};
+const profileWord = f => String(f || "").includes("שחור") ? "שחור" : "ניקל";
+// Best stock item for a wanted name test + glass + profile. Returns { item, exact } or null.
+function pickStockItem(stockItems, nameTest, glass, finish, square) {
+  const cands = stockItems.filter(i => {
+    const n = normModular(i.name);
+    return nameTest(n) && n.includes("מרובע") === !!square;
+  });
+  if (!cands.length) return null;
+  const g = glassWord(glass),
+    c = profileWord(finish);
+  const score = i => {
+    const f = normModular(i.finish);
+    return (g && f.includes(normModular(g)) ? 2 : 0) + (f.includes(c) ? 1 : 0) + ((Number(i.stock) || 0) > 0 ? 0.5 : 0);
+  };
+  const best = cands.slice().sort((a, b) => score(b) - score(a))[0];
+  return { item: best, exact: score(best) >= 3 };
+}
+// "… 72.5-75 …" / "… (80-82.5)" → [72.5, 75]
+const nameRange = n => {
+  const m = String(n).match(/(\d+(?:\.\d+)?)\s*-\s*(\d+(?:\.\d+)?)/);
+  return m ? [Number(m[1]), Number(m[2])] : null;
+};
+const fmtCm = n => String(Math.round(n * 100) / 100);
+// One shower option of a measurement → suggested stock lines + explanation rows + warnings
+function modularPlanForOption(o, stockItems, productText) {
+  const lines = [],
+    rows = [],
+    warnings = [];
+  const add = (item, qty, why) => {
+    const ex = lines.find(l => l.itemId === item.id);
+    if (ex) ex.qty += qty;
+    else lines.push({ itemId: item.id, kind: item.kind, name: item.name, finish: item.finish || "", qty, unitCost: item.kind === "model" ? null : "", why });
+  };
+  const modelText = (o.model || "") + " " + (productText || "");
+  const square = modelText.includes("מרובע");
+  const want = `${glassWord(o.glass)} · ${profileWord(o.finish)}${square ? " · מרובע" : ""}`;
+  const manualFixed = MODULAR_RULES.manualFixedModels.some(m => modelText.includes(m));
+  const N = (o.sides || []).length;
+  const spareText = (val, L, H) => H - val < MODULAR_RULES.spare ? `רק ${fmtCm(H - val)} ס"מ מהמקסימום` : val - L < MODULAR_RULES.spare ? `רק ${fmtCm(val - L)} ס"מ מהמינימום` : "";
+  (o.sides || []).forEach((sd, si) => {
+    const sideName = N === 1 ? "חזית" : si === 0 ? "צד שמאל" : "צד ימין";
+    const els = sd.els || [];
+    els.forEach((el, k) => {
+      const w = Number(el.w) || 0;
+      if (el.type === "fixed") {
+        if (manualFixed) {
+          rows.push({ side: sideName, text: `קבוע ${fmtCm(w)} — לבחור ידנית (${MODULAR_RULES.manualFixedModels.filter(m => modelText.includes(m)).join(", ")})` });
+          warnings.push(`${sideName}: קבוע ${fmtCm(w)} — לבחור ידנית מהמלאי`);
+          return;
+        }
+        const p = pickStockItem(stockItems, n => (n.includes("קיר צד") || n.includes("דופן")) && !n.includes("אמבטיון") && !n.includes("קולורדו") && (n.match(/\d+(\.\d+)?/g) || []).map(Number).includes(w), o.glass, o.finish, false);
+        if (!p) {
+          rows.push({ side: sideName, text: `קבוע ${fmtCm(w)} → אין קיר צד ${fmtCm(w)} במלאי` });
+          warnings.push(`${sideName}: אין במלאי קיר צד ${fmtCm(w)}`);
+          return;
+        }
+        if (!p.exact) {
+          rows.push({ side: sideName, text: `קבוע ${fmtCm(w)} → אין קיר צד ${fmtCm(w)} ב${want} (יש: ${p.item.finish})` });
+          warnings.push(`${sideName}: אין במלאי קיר צד ${fmtCm(w)} ב${want} — לבחור ידנית`);
+          return;
+        }
+        add(p.item, 1, `קבוע ${fmtCm(w)}`);
+        rows.push({ side: sideName, text: `קבוע ${fmtCm(w)} → ${p.item.name} · ${p.item.finish} × 1` });
+        return;
+      }
+      if (el.type !== "door") {
+        rows.push({ side: sideName, text: `הרמוניקה ${fmtCm(w)} — לבחור ידנית` });
+        warnings.push(`${sideName}: הרמוניקה — לבחור ידנית`);
+        return;
+      }
+      if (!w) {
+        warnings.push(`${sideName}: חסר רוחב דלת`);
+        return;
+      }
+      const toFixed = (els[k - 1] && els[k - 1].type === "fixed") || (els[k + 1] && els[k + 1].type === "fixed");
+      // corner, door not next to a fixed panel → corner door items (profile-edge range of 2.5)
+      if (N >= 2 && !toFixed) {
+        const edge = w + MODULAR_RULES.midToEdge;
+        const calc = `דלת פינתית ${fmtCm(w)} (אמצע זכוכית) + ${MODULAR_RULES.midToEdge} = ${fmtCm(edge)} קצה פרופיל`;
+        const fits = stockItems.filter(i => {
+          const n = normModular(i.name),
+            r = nameRange(n);
+          return r && Math.abs(r[1] - r[0] - MODULAR_RULES.cornerStep) < 0.01 && (n.includes("על ציר") || n.includes("מלא")) && !n.includes("מלודי") && edge >= r[0] && edge < r[1];
+        });
+        if (!fits.length) {
+          rows.push({ side: sideName, text: `${calc} → אין דגם פינתי בטווח הזה` });
+          warnings.push(`${sideName}: דלת פינתית ${fmtCm(edge)} — אין פריט בטווח, לבחור ידנית`);
+          return;
+        }
+        const r = nameRange(normModular(fits[0].name));
+        const tight = spareText(edge, r[0], r[1]);
+        if (tight) warnings.push(`${sideName}: ${fmtCm(edge)} בטווח ${r[0]}-${r[1]} — ${tight}, אין מספיק ספייר`);
+        const p = pickStockItem(fits, () => true, o.glass, o.finish, square);
+        if (!p || !p.exact) {
+          rows.push({ side: sideName, text: `${calc} → ${fits[0].name} — אין ב${want}`, tight });
+          warnings.push(`${sideName}: אין במלאי ${fits[0].name} ב${want} — לבחור ידנית`);
+          return;
+        }
+        add(p.item, 0.5, `דלת פינתית ${fmtCm(edge)}`);
+        rows.push({ side: sideName, text: `${calc} → ${p.item.name} · ${p.item.finish} × 0.5 (ספייר ${fmtCm(r[1] - edge)} ס"מ)`, tight });
+        return;
+      }
+      // front (wall to wall) or door next to a fixed panel → half of a פאלאס front
+      const door = w + (toFixed ? MODULAR_RULES.addToFixed : 0);
+      const front = door * 2;
+      const calc = `דלת ${fmtCm(w)}${toFixed ? ` + ${MODULAR_RULES.addToFixed} (מתחברת לקבוע)` : " (לקיר — בלי תוספת)"} = ${fmtCm(door)} → חזית ${fmtCm(front)}`;
+      if (front >= MODULAR_RULES.palaceMax) {
+        rows.push({ side: sideName, text: `${calc} → מעל 140 — אין פאלאס, לבחור ידנית` });
+        warnings.push(`${sideName}: חזית ${fmtCm(front)} — מעל 140, לבחור ידנית`);
+        return;
+      }
+      const L = Math.floor(front / MODULAR_RULES.rangeStep) * MODULAR_RULES.rangeStep,
+        H = L + MODULAR_RULES.rangeStep;
+      const range = `${L}-${H}`;
+      const p = pickStockItem(stockItems, n => /פאל/.test(n) && n.replace(/\s/g, "").includes(range), o.glass, o.finish, square);
+      const tight = spareText(front, L, H);
+      if (tight) warnings.push(`${sideName}: חזית ${fmtCm(front)} בטווח ${range} — ${tight}, אין מספיק ספייר`);
+      if (!p) {
+        rows.push({ side: sideName, text: `${calc} → פאלאס ${range} — אין במלאי`, tight });
+        warnings.push(`${sideName}: אין במלאי פאלאס ${range}`);
+        return;
+      }
+      if (!p.exact) {
+        rows.push({ side: sideName, text: `${calc} → פאלאס ${range} — אין ב${want} (יש: ${p.item.finish})`, tight });
+        warnings.push(`${sideName}: אין במלאי פאלאס ${range} ב${want} — לבחור ידנית`);
+        return;
+      }
+      add(p.item, 0.5, `דלת ${fmtCm(door)}`);
+      rows.push({ side: sideName, text: `${calc} → ${p.item.name} · ${p.item.finish} × 0.5 (ספייר ${fmtCm(H - front)} ס"מ)`, tight });
+    });
+  });
+  return { lines, rows, warnings };
+}
+// All the options of a job's latest measurement that are marked "פרופיל"
+async function modularPlan(job, stockItems) {
+  const m = currentMeasurement(job);
+  if (!m || !m.hash) return { options: [], error: "אין מדידה שמורה" };
+  let data;
+  try {
+    data = await readMeasureHash(m.hash);
+  } catch (e) {
+    return { options: [], error: "לא הצלחתי לקרוא את המדידה" };
+  }
+  const items = data && Array.isArray(data.items) ? data.items : data && data.sides ? [{ room: "", opts: [data] }] : [];
+  const options = [];
+  items.forEach((it, i) => (it.opts || []).forEach((o, j) => {
+    const label = (it.room || (items.length > 1 ? `מקלחון ${i + 1}` : "מקלחון")) + ((it.opts || []).length > 1 ? ` – אופציה ${o.opt || (j === 0 ? "א" : "ב")}` : "");
+    if (o.system !== "profile") {
+      options.push({ label, skipped: o.system === "clean" ? "צירים נקיים — לא מחושב" : "לא צוין פרופיל / צירים נקיים במדידה", o });
+      return;
+    }
+    options.push({ label, o, ...modularPlanForOption(o, stockItems, job.product) });
+  }));
+  return { options };
+}
+// ─── פענוח מודולרי (admin) ────────────────────────────────────────────────
+// Jobs of a modular model, measured and confirmed: pick the standard stock items that build it (0.5 allowed).
+// "סיים פענוח" takes them out of stock (showers: oldest container first) and works like "זכוכית מוכנה".
+const fmtQty = q => String(Math.round((Number(q) || 0) * 100) / 100);
+const ModularDecodePage = ({ workOrders, setWorkOrders, installers, currentUser, modularNames }) => {
+  const h = React.createElement;
+  const isMobile = useIsMobile();
+  const [stockItems, setStockItems] = useState([]);
+  const [containers, setContainers] = useState([]);
+  const [savedCosts, setSavedCosts] = useState({});
+  const [tab, setTab] = useState("waiting");
+  const [openId, setOpenId] = useState(null);
+  const [drafts, setDrafts] = useState({});
+  const [search, setSearch] = useState("");
+  const [newName, setNewName] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [plans, setPlans] = useState({}); // job id → automatic calculation
+  const openJob = workOrders.find(w => w.id === openId);
+  const openHash = openJob ? (currentMeasurement(openJob) || {}).hash : null;
+  useEffect(() => {
+    if (!openJob || !stockItems.length) return;
+    let alive = true;
+    modularPlan(openJob, stockItems).then(p => {
+      if (!alive) return;
+      setPlans(prev => ({ ...prev, [openJob.id]: p }));
+      // nothing picked yet → start from the calculation (the admin checks and approves)
+      const calc = p.options.filter(x => x.lines);
+      if (calc.length === 1 && calc[0].lines.length && !drafts[openJob.id] && !(openJob.modularDraft && openJob.modularDraft.items && openJob.modularDraft.items.length)) {
+        setDrafts(prev => prev[openJob.id] ? prev : { ...prev, [openJob.id]: calc[0].lines.map(l => ({ ...l })) });
+      }
+    }).catch(e => console.warn("modular plan", e));
+    return () => {
+      alive = false;
+    };
+  }, [openId, openHash, stockItems.length]);
+  useEffect(() => {
+    const db = getDb();
+    if (!db) return;
+    const u1 = db.collection("stockItems").onSnapshot(s => setStockItems(s.docs.map(d => d.data())), e => console.warn("stockItems", e));
+    const u2 = db.collection("containers").onSnapshot(s => setContainers(s.docs.map(d => d.data())), e => console.warn("containers", e));
+    const u3 = db.collection("_meta").doc("modularModels").onSnapshot(d => setSavedCosts(d.exists && d.data().costs || {}), e => console.warn("modularModels", e));
+    return () => {
+      u1();
+      u2();
+      u3();
+    };
+  }, []);
+  const avgs = useMemo(() => containerAverages(containers).byItem, [containers]);
+  const itemById = id => stockItems.find(i => i.id === id);
+  // Expected unit cost: showers = container average (in stock), other items = the last cost typed here
+  const unitCostOf = id => {
+    const a = avgs[id];
+    if (a) return a.stockQty ? a.stockAvg : a.avg;
+    return savedCosts[id] == null ? null : Number(savedCosts[id]);
+  };
+  // What taking qty units would cost now: oldest container first (same rule as the real stock move)
+  const fifoCost = (id, qty) => {
+    let left = qty,
+      cost = 0;
+    containers.filter(c => c.stockAdded).sort((a, b) => containerOrderKey(a).localeCompare(containerOrderKey(b))).forEach(c => (c.lines || []).forEach(l => {
+      const k = containerStockKey(l);
+      if (left <= 0 || stockItemId(k.kind, k.name, k.finish) !== id) return;
+      const take = Math.min(left, lineRemaining(c, l));
+      left -= take;
+      cost += take * (Number(l.ils) || 0);
+    }));
+    if (left > 0) {
+      const u = unitCostOf(id);
+      if (u == null) return qty > left ? cost : null;
+      cost += left * u;
+    }
+    return cost;
+  };
+  const waiting = workOrders.filter(isWaitingModular).sort(newestFirst);
+  const done = workOrders.filter(w => w.modularDecode).sort((a, b) => (b.modularDecode.at || "").localeCompare(a.modularDecode.at || ""));
+
+  // ── model names list ──
+  const saveNames = async names => {
+    const db = getDb();
+    if (!db) return;
+    try {
+      await db.collection("_meta").doc("modularModels").set({ names, updatedAt: new Date().toISOString() }, { merge: true });
+    } catch (e) {
+      alert("השמירה נכשלה — נסו שוב");
+    }
+  };
+  const addName = () => {
+    const n = newName.trim();
+    if (!n) return;
+    if (modularNames.some(x => normModular(x) === normModular(n))) return setNewName("");
+    saveNames([...modularNames, n]);
+    setNewName("");
+  };
+  const removeName = n => {
+    if (!confirm(`להסיר את "${n}" מרשימת הדגמים המודולריים?`)) return;
+    saveNames(modularNames.filter(x => x !== n));
+  };
+
+  // ── picking items ──
+  const linesOf = w => drafts[w.id] || (w.modularDraft && w.modularDraft.items) || [];
+  const setLines = (w, lines) => setDrafts(prev => ({ ...prev, [w.id]: lines }));
+  const addItem = (w, it) => {
+    const lines = linesOf(w);
+    if (lines.some(l => l.itemId === it.id)) return setLines(w, lines.map(l => l.itemId === it.id ? { ...l, qty: l.qty + 1 } : l));
+    const c = unitCostOf(it.id);
+    setLines(w, [...lines, { itemId: it.id, kind: it.kind, name: it.name, finish: it.finish || "", qty: 1, unitCost: it.kind === "model" ? null : c == null ? "" : round2(c) }]);
+    setSearch("");
+  };
+  const setQty = (w, id, q) => {
+    q = Math.round(Number(q) * 2) / 2; // whole or half units only
+    if (!(q > 0)) q = 0.5;
+    setLines(w, linesOf(w).map(l => l.itemId === id ? { ...l, qty: q } : l));
+  };
+  const setLineCost = (w, id, v) => setLines(w, linesOf(w).map(l => l.itemId === id ? { ...l, unitCost: v } : l));
+  const removeLine = (w, id) => setLines(w, linesOf(w).filter(l => l.itemId !== id));
+  const saveDraft = w => {
+    const items = linesOf(w);
+    setWorkOrders(prev => prev.map(x => x.id === w.id ? { ...x, modularDraft: { items, at: new Date().toISOString() } } : x));
+    setDrafts(prev => {
+      const n = { ...prev };
+      delete n[w.id];
+      return n;
+    });
+  };
+  const logEntry = action => ({
+    action,
+    date: new Date().toISOString().split("T")[0],
+    time: new Date().toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" }),
+    by: "מנהל"
+  });
+  const finish = async w => {
+    const lines = linesOf(w).filter(l => l.qty > 0);
+    if (!lines.length) return alert("לא נבחרו פריטים");
+    const short = lines.filter(l => {
+      const it = itemById(l.itemId);
+      return !it || (Number(it.stock) || 0) < l.qty;
+    });
+    const list = lines.map(l => `• ${l.name}${l.finish ? " · " + l.finish : ""} × ${fmtQty(l.qty)}`).join("\n");
+    const planWarn = ((plans[w.id] || {}).options || []).flatMap(o => o.warnings || []);
+    if (!confirm(`לאשר את הפענוח של ${w.customerName}?\n\nיירדו מהמלאי:\n${list}${planWarn.length ? "\n\n⚠ אזהרות מהחישוב:\n" + planWarn.map(x => "• " + x).join("\n") : ""}${short.length ? "\n\n⚠ אין מספיק במלאי עבור: " + short.map(l => l.name).join(", ") + " (המלאי יירד למינוס)" : ""}`)) return;
+    setBusy(true);
+    try {
+      await stockAdjust(lines.map(l => ({ kind: l.kind, name: l.name, finish: l.finish, qty: -l.qty })), { orderId: w.id, reason: "פענוח מודולרי " + w.id, by: currentUser && currentUser.name || "מנהל", skipLayers: true });
+      const items = [];
+      let partial = false;
+      let total = 0;
+      for (const l of lines) {
+        let unit = null,
+          lineCost = null;
+        if (l.kind === "model") {
+          let res = { qty: 0, cost: 0 };
+          try {
+            res = (await stockLayersMove(l.itemId, -l.qty)) || res;
+          } catch (e) {
+            console.warn("container layers", e);
+          }
+          let cost = res.cost;
+          if (res.qty < l.qty) {
+            const fb = await fallbackUnitCost(l.itemId);
+            cost = fb == null && !res.qty ? null : cost + (l.qty - res.qty) * (fb || 0);
+          }
+          lineCost = cost;
+          unit = cost == null ? null : round2(cost / l.qty);
+        } else {
+          unit = l.unitCost === "" || l.unitCost == null ? null : round2(l.unitCost);
+          lineCost = unit == null ? null : unit * l.qty;
+        }
+        if (unit == null) partial = true;
+        else total += lineCost;
+        items.push({ itemId: l.itemId, kind: l.kind, name: l.name, finish: l.finish, qty: l.qty, unitCost: unit });
+      }
+      const cost = round2(total);
+      const remember = {};
+      items.filter(l => l.kind !== "model" && l.unitCost != null).forEach(l => remember[l.itemId] = l.unitCost);
+      if (Object.keys(remember).length) await getDb().collection("_meta").doc("modularModels").set({ costs: remember }, { merge: true });
+      const today = new Date().toISOString().split("T")[0];
+      setWorkOrders(prev => prev.map(x => x.id === w.id ? {
+        ...x,
+        modular: true,
+        modularDecode: { items, cost, partial, warnings: ((plans[w.id] || {}).options || []).flatMap(o => o.warnings || []), at: new Date().toISOString(), by: currentUser && currentUser.name || "מנהל" },
+        modularDraft: null,
+        glassReady: true,
+        glassReadyDate: today,
+        glassReadyMatched: false,
+        status: "pending",
+        activityLog: [...(x.activityLog || []), logEntry("modular_done")]
+      } : x));
+      setDrafts(prev => {
+        const n = { ...prev };
+        delete n[w.id];
+        return n;
+      });
+      setOpenId(null);
+      const inst = w.installerId && installers.find(i => i.id === w.installerId);
+      if (inst && inst.phone) {
+        const msg = `שלום ${inst.name},\n\nהמקלחון מוכן להזמנה:\n\nלקוח: ${w.customerName}\nמוצר: ${w.product}\nכתובת: ${w.address || "—"}\n\nיש להיכנס למערכת ולקבוע תאריך התקנה:\nhttps://bariline.github.io/bariline-crm/`;
+        const clean = inst.phone.replace(/[-\s]/g, "");
+        window.open(`https://wa.me/${clean.startsWith("0") ? "972" + clean.slice(1) : clean}?text=${encodeURIComponent(msg)}`, "_blank");
+      }
+    } catch (e) {
+      console.error("modular finish", e);
+      alert("הורדת המלאי נכשלה — בדקו חיבור ונסו שוב");
+    }
+    setBusy(false);
+  };
+  const undo = async w => {
+    const dec = w.modularDecode;
+    if (!confirm(`לבטל את הפענוח של ${w.customerName}? הפריטים יחזרו למלאי והעבודה תחזור לפענוח.`)) return;
+    setBusy(true);
+    try {
+      await stockAdjust(dec.items.map(l => ({ kind: l.kind, name: l.name, finish: l.finish, qty: l.qty })), { orderId: w.id, reason: "ביטול פענוח מודולרי " + w.id, by: currentUser && currentUser.name || "מנהל", skipLayers: true });
+      for (const l of dec.items) if (l.kind === "model") {
+        try {
+          await stockLayersMove(l.itemId, l.qty);
+        } catch (e) {
+          console.warn("container layers", e);
+        }
+      }
+      setWorkOrders(prev => prev.map(x => x.id === w.id ? {
+        ...x,
+        modularDecode: null,
+        modularDraft: { items: dec.items.map(l => ({ ...l, unitCost: l.kind === "model" ? null : l.unitCost })), at: new Date().toISOString() },
+        glassReady: false,
+        glassReadyDate: null,
+        glassReadyMatched: false,
+        activityLog: [...(x.activityLog || []), logEntry("modular_undo")]
+      } : x));
+      setTab("waiting");
+      setOpenId(w.id);
+    } catch (e) {
+      console.error("modular undo", e);
+      alert("ההחזרה למלאי נכשלה — נסו שוב");
+    }
+    setBusy(false);
+  };
+
+  // ── UI ──
+  const cell = { padding: "6px 8px", borderBottom: `1px solid ${colors.border}`, fontSize: 13, textAlign: "right" };
+  const head = { ...cell, fontWeight: 700, color: colors.textLight, fontSize: 12, background: "#f8fafc" };
+  const qtyBtn = { width: 28, height: 28, borderRadius: 6, border: `1px solid ${colors.border}`, background: "#fff", cursor: "pointer", fontSize: 15, fontFamily: "inherit" };
+  const fmtD = d => d ? d.slice(8, 10) + "/" + d.slice(5, 7) + "/" + d.slice(2, 4) : "—";
+  const storeName = w => (w.madafDelivery && w.madafDelivery.storeName) || (w.madaf && w.madaf.storeName) || "";
+  const jobHeader = w => h("div", { style: { display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" } },
+    h("div", null,
+      h("div", { style: { fontWeight: 700, fontSize: 15 } }, w.customerName, " ", h("span", { style: { color: colors.textMuted, fontWeight: 400, fontSize: 12 } }, w.id)),
+      h("div", { style: { fontSize: 13, marginTop: 3 } }, w.product || "—"),
+      h("div", { style: { fontSize: 12, color: colors.textMuted, marginTop: 2 } },
+        [w.customerPhone, w.address, storeName(w), w.installerName ? "מתקין: " + w.installerName : "", w.measurementDate ? "נמדד " + fmtD(w.measurementDate) : ""].filter(Boolean).join(" · "))));
+  const measureBox = w => {
+    const m = currentMeasurement(w);
+    const drawing = w.drawing && Array.isArray(w.drawing.items) ? w.drawing.items : [];
+    if (!m && !drawing.length) return h("div", { style: { fontSize: 12, color: colors.warning, marginTop: 8 } }, "אין סיכום מדידה בעבודה");
+    return h("div", { style: { marginTop: 10, padding: 10, background: "#f8fafc", border: `1px solid ${colors.border}`, borderRadius: 10, fontSize: 12 } },
+      m && h("div", null, h("div", { style: { fontWeight: 700, marginBottom: 4, color: colors.textLight } }, "מידות הלקוח"), h("div", { style: { whiteSpace: "pre-wrap" } }, m.summary || "")),
+      drawing.map((it, i) => h("div", { key: i, style: { marginTop: 4 } }, h("b", null, it.label, ": "), it.summary)));
+  };
+  const picker = w => {
+    const q = normModular(search);
+    const results = q ? stockItems.filter(i => normModular(i.name + " " + (i.finish || "")).includes(q)).sort((a, b) => (Number(b.stock) || 0) - (Number(a.stock) || 0)).slice(0, 10) : [];
+    const lines = linesOf(w);
+    const est = lines.reduce((s, l) => {
+      if (l.kind === "model") {
+        const f = fifoCost(l.itemId, l.qty);
+        return f == null ? s : s + f;
+      }
+      return l.unitCost === "" || l.unitCost == null ? s : s + Number(l.unitCost) * l.qty;
+    }, 0);
+    const missingCost = lines.some(l => (l.kind === "model" ? fifoCost(l.itemId, l.qty) : l.unitCost === "" ? null : l.unitCost) == null);
+    const plan = plans[w.id];
+    const calcBox = h("div", { style: { marginTop: 12, padding: 10, border: `1px solid ${colors.purple}40`, background: colors.purple + "08", borderRadius: 10, fontSize: 12 } },
+      h("div", { style: { fontWeight: 700, fontSize: 13, marginBottom: 6, color: colors.purple } }, "חישוב אוטומטי"),
+      !plan ? h("div", { style: { color: colors.textMuted } }, "מחשב…") : plan.error ? h("div", { style: { color: colors.warning } }, plan.error + " — לבחור ידנית") :
+      !plan.options.length ? h("div", { style: { color: colors.textMuted } }, "אין מקלחונים במדידה") :
+      plan.options.map((op, k) => h("div", { key: k, style: { marginTop: k ? 10 : 0 } },
+        h("div", { style: { fontWeight: 700 } }, op.label),
+        op.skipped ? h("div", { style: { color: colors.textMuted } }, op.skipped, op.o && !op.o.system ? h("button", { onClick: () => setPlans(prev => ({ ...prev, [w.id]: { ...plan, options: plan.options.map(x => x === op ? { label: op.label, o: { ...op.o, system: "profile" }, ...modularPlanForOption(op.o, stockItems, w.product) } : x) } })), style: { marginRight: 8, background: "none", border: "none", color: colors.primary, textDecoration: "underline", cursor: "pointer", fontSize: 12, fontFamily: "inherit" } }, "חשב בכל זאת כפרופיל") : null) :
+        h("div", null,
+          op.rows.map((r, i) => h("div", { key: i, style: { color: r.tight ? colors.warning : colors.text } }, h("b", null, r.side, ": "), r.text)),
+          op.warnings.length > 0 && h("div", { style: { marginTop: 6, padding: "6px 8px", background: "#fff7ed", border: `1px solid ${colors.warning}60`, borderRadius: 8, color: "#9a3412" } }, op.warnings.map((x, i) => h("div", { key: i }, "⚠ ", x))),
+          op.lines.length > 0 && h("button", { onClick: () => setLines(w, op.lines.map(l => ({ ...l }))), style: { marginTop: 6, background: "none", border: "none", color: colors.primary, textDecoration: "underline", cursor: "pointer", fontSize: 12, fontFamily: "inherit", padding: 0 } }, "השתמש בחישוב הזה")))));
+    return h("div", { style: { marginTop: 12 } },
+      calcBox,
+      h("div", { style: { fontWeight: 700, fontSize: 13, margin: "12px 0 6px" } }, "פריטים מהמלאי (אפשר לשנות לפני אישור)"),
+      h("input", { value: search, onChange: e => setSearch(e.target.value), placeholder: "חיפוש פריט במלאי (שם / גימור)…", style: { width: "100%", padding: "8px 10px", borderRadius: 8, border: `1px solid ${colors.border}`, fontSize: 13, fontFamily: "inherit", boxSizing: "border-box" } }),
+      results.length > 0 && h("div", { style: { border: `1px solid ${colors.border}`, borderRadius: 8, marginTop: 4, maxHeight: 260, overflowY: "auto" } },
+        results.map(it => h("div", { key: it.id, onClick: () => addItem(w, it), style: { padding: "7px 10px", cursor: "pointer", borderBottom: `1px solid ${colors.border}`, display: "flex", justifyContent: "space-between", gap: 8, fontSize: 13 } },
+          h("span", null, it.name, it.finish ? h("span", { style: { color: colors.textMuted } }, " · " + it.finish) : null),
+          h("span", { style: { color: (Number(it.stock) || 0) > 0 ? colors.success : colors.danger, whiteSpace: "nowrap" } }, "במלאי: " + fmtQty(it.stock))))),
+      q && !results.length && h("div", { style: { fontSize: 12, color: colors.textMuted, marginTop: 4 } }, "לא נמצא פריט במלאי"),
+      lines.length > 0 && h("div", { style: { overflowX: "auto", marginTop: 10 } }, h("table", { style: { width: "100%", borderCollapse: "collapse" } },
+        h("thead", null, h("tr", null, ["פריט", "במלאי", "כמות", "עלות ליחידה", ""].map((t, i) => h("th", { key: i, style: head }, t)))),
+        h("tbody", null, lines.map(l => {
+          const it = itemById(l.itemId);
+          const have = it ? Number(it.stock) || 0 : 0;
+          return h("tr", { key: l.itemId },
+            h("td", { style: cell }, l.name, l.finish ? h("span", { style: { color: colors.textMuted } }, " · " + l.finish) : null),
+            h("td", { style: { ...cell, color: have >= l.qty ? colors.text : colors.danger, whiteSpace: "nowrap" } }, fmtQty(have), have < l.qty ? " ⚠" : ""),
+            h("td", { style: { ...cell, whiteSpace: "nowrap" } },
+              h("button", { style: qtyBtn, onClick: () => setQty(w, l.itemId, l.qty - 0.5) }, "−"),
+              h("input", { type: "number", step: 0.5, min: 0.5, value: l.qty, onChange: e => setQty(w, l.itemId, e.target.value), style: { width: 54, margin: "0 4px", padding: "4px", textAlign: "center", borderRadius: 6, border: `1px solid ${colors.border}`, fontFamily: "inherit" } }),
+              h("button", { style: qtyBtn, onClick: () => setQty(w, l.itemId, l.qty + 0.5) }, "+")),
+            h("td", { style: { ...cell, whiteSpace: "nowrap" } }, l.kind === "model"
+              ? h("span", { title: "לפי המכולה הוותיקה במלאי (FIFO)" }, fifoCost(l.itemId, l.qty) == null ? h("span", { style: { color: colors.warning } }, "אין מחיר מכולה") : "≈ " + fmtILS(fifoCost(l.itemId, l.qty) / l.qty))
+              : h("input", { type: "number", min: 0, value: l.unitCost, placeholder: "₪", onChange: e => setLineCost(w, l.itemId, e.target.value === "" ? "" : Number(e.target.value)), style: { width: 80, padding: "4px", borderRadius: 6, border: `1px solid ${colors.border}`, fontFamily: "inherit" } })),
+            h("td", { style: cell }, h("button", { onClick: () => removeLine(w, l.itemId), style: { background: "none", border: "none", color: colors.danger, cursor: "pointer", fontSize: 16 } }, "×")));
+        })))),
+      lines.length > 0 && h("div", { style: { fontSize: 12, color: colors.textLight, marginTop: 6 } }, "עלות משוערת: ", h("b", null, fmtILS(est)), missingCost ? " (חסרים מחירים)" : ""),
+      h("div", { style: { display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" } },
+        h(Button, { size: "sm", variant: "success", disabled: busy || !lines.length, onClick: () => finish(w) }, Icons.check, " אשר פענוח והורד מהמלאי"),
+        h(Button, { size: "sm", variant: "outline", disabled: busy || !drafts[w.id], onClick: () => saveDraft(w) }, "שמור טיוטה"),
+        h(Button, { size: "sm", variant: "ghost", onClick: () => { setOpenId(null); setSearch(""); } }, "סגור")));
+  };
+  const waitingCard = w => {
+    const open = openId === w.id;
+    const lines = linesOf(w);
+    return h(Card, { key: w.id, style: { borderRight: `4px solid ${colors.purple}`, padding: isMobile ? 14 : 18, opacity: busy && open ? 0.6 : 1 } },
+      jobHeader(w),
+      measureBox(w),
+      !open && h("div", { style: { display: "flex", alignItems: "center", gap: 10, marginTop: 10, flexWrap: "wrap" } },
+        h(Button, { size: "sm", onClick: () => { setOpenId(w.id); setSearch(""); } }, Icons.inventory, " בחר פריטים מהמלאי"),
+        lines.length > 0 && h("span", { style: { fontSize: 12, color: colors.textMuted } }, "טיוטה: " + lines.map(l => `${l.name} × ${fmtQty(l.qty)}`).join(", "))),
+      open && picker(w));
+  };
+  const doneCard = w => {
+    const dec = w.modularDecode;
+    const canUndo = !w.glassReadyMatched && w.status !== "completed" && w.status !== "in-progress";
+    return h(Card, { key: w.id, style: { borderRight: `4px solid ${colors.success}`, padding: isMobile ? 14 : 18 } },
+      jobHeader(w),
+      h("div", { style: { fontSize: 12, marginTop: 8 } }, dec.items.map((l, i) => h("div", { key: i }, `• ${l.name}${l.finish ? " · " + l.finish : ""} × ${fmtQty(l.qty)}`, l.unitCost != null ? h("span", { style: { color: colors.textMuted } }, ` (${fmtILS(l.unitCost)} ליח׳)`) : h("span", { style: { color: colors.warning } }, " (אין מחיר)")))),
+      h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, marginTop: 8, flexWrap: "wrap" } },
+        h("div", { style: { fontSize: 12, color: colors.textLight } }, "עלות: ", h("b", null, fmtILS(dec.cost)), dec.partial ? " (חסרים מחירים)" : "", " · ", fmtD((dec.at || "").slice(0, 10)), dec.by ? " · " + dec.by : ""),
+        canUndo && h(Button, { size: "sm", variant: "outline", disabled: busy, onClick: () => undo(w) }, "בטל פענוח")));
+  };
+  const tabBtn = (key, label) => h("button", { key, onClick: () => setTab(key), style: { padding: "8px 16px", borderRadius: 8, border: "none", cursor: "pointer", fontFamily: "inherit", fontSize: 13, fontWeight: 600, background: tab === key ? colors.primary : "#f1f5f9", color: tab === key ? "#fff" : colors.text } }, label);
+  return h("div", { style: { display: "flex", flexDirection: "column", gap: 16 } },
+    h("div", null,
+      h("h2", { style: { margin: 0, fontSize: isMobile ? 20 : 24 } }, "פענוח מודולרי"),
+      h("div", { style: { fontSize: 13, color: colors.textMuted, marginTop: 4 } }, "דגמים שנבנים מפריטים סטנדרטיים מהמלאי לפי מידות הלקוח. אחרי אישור המדידה בוחרים כאן את הפריטים (אפשר חצי יחידה), ובסיום הם יורדים מהמלאי והמתקין מקבל הודעה לתאם התקנה.")),
+    h(Card, { style: { padding: isMobile ? 14 : 18 } },
+      h("div", { style: { fontWeight: 700, fontSize: 14, marginBottom: 8 } }, "דגמים מודולריים"),
+      h("div", { style: { fontSize: 12, color: colors.textMuted, marginBottom: 8 } }, "עבודה בהתאמה אישית שהמוצר שלה (או שורה בתעודת המשלוח) מכיל אחד מהשמות האלה תגיע לכאן במקום ל\"ממתין לזכוכית\"."),
+      h("div", { style: { display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 } },
+        modularNames.length ? modularNames.map(n => h("span", { key: n, style: { display: "inline-flex", alignItems: "center", gap: 6, padding: "4px 10px", borderRadius: 16, background: colors.purple + "18", color: colors.purple, fontSize: 13, fontWeight: 600 } }, n,
+          h("button", { onClick: () => removeName(n), style: { background: "none", border: "none", color: colors.purple, cursor: "pointer", fontSize: 14, padding: 0 } }, "×")))
+          : h("span", { style: { fontSize: 12, color: colors.warning } }, "עדיין אין דגמים ברשימה")),
+      h("div", { style: { display: "flex", gap: 8 } },
+        h("input", { value: newName, onChange: e => setNewName(e.target.value), onKeyDown: e => e.key === "Enter" && addName(), placeholder: "שם דגם להוספה", style: { flex: 1, padding: "8px 10px", borderRadius: 8, border: `1px solid ${colors.border}`, fontSize: 13, fontFamily: "inherit" } }),
+        h(Button, { size: "sm", onClick: addName }, "הוסף"))),
+    h("div", { style: { display: "flex", gap: 8 } }, tabBtn("waiting", `ממתינים לפענוח (${waiting.length})`), tabBtn("done", `הושלמו (${done.length})`)),
+    tab === "waiting" && (waiting.length ? waiting.map(waitingCard) : h(Card, null, h("div", { style: { textAlign: "center", color: colors.textMuted, fontSize: 14 } }, "אין עבודות שממתינות לפענוח"))),
+    tab === "done" && (done.length ? done.slice(0, 50).map(doneCard) : h(Card, null, h("div", { style: { textAlign: "center", color: colors.textMuted, fontSize: 14 } }, "עדיין לא הושלמו פענוחים"))));
+};
 // ─── Inventory Page (Admin only) ─────────────────────────────────────────────
 
 // ─── Real inventory (Firestore: stockItems + stockMoves) ────
@@ -9977,7 +10582,79 @@ const MadafItemsPanel = () => {
       })))));
 };
 
-const InventoryPage = () => {
+// ─── One-time cleanup before November (admin): old stock / old jobs. Everything is copied to _trash first ────
+const CLEANUP_KEEP_FROM = "2026-11-01";
+const CleanupPanel = ({ workOrders, setWorkOrders }) => {
+  const h = React.createElement;
+  const [stock, setStock] = useState(null);
+  const [busy, setBusy] = useState("");
+  const [msg, setMsg] = useState("");
+  const load = async () => {
+    const db = getDb();
+    if (!db) return;
+    const [it, co, mv] = await Promise.all(["stockItems", "containers", "stockMoves"].map(c => db.collection(c).get()));
+    setStock({
+      items: it.docs.map(d => d.id),
+      containers: co.docs.map(d => d.id),
+      moves: mv.docs.filter(d => (d.data().at || "") < CLEANUP_KEEP_FROM).map(d => d.id),
+      keptMoves: mv.docs.filter(d => (d.data().at || "") >= CLEANUP_KEEP_FROM).length
+    });
+  };
+  useEffect(() => {
+    load().catch(e => console.warn("cleanup load", e));
+  }, []);
+  const oldJobs = workOrders.filter(w => (w.createdDate || "") < CLEANUP_KEEP_FROM);
+  const keptJobs = workOrders.length - oldJobs.length;
+  const ask = text => (prompt(text + '\n\nכדי לאשר הקלידו: מחק') || "").trim() === "מחק";
+  const deleteStock = async () => {
+    if (!stock) return;
+    const n = stock.items.length + stock.containers.length + stock.moves.length;
+    if (!ask(`למחוק את המלאי הישן?\n• ${stock.items.length} פריטי מלאי\n• ${stock.containers.length} מכולות\n• ${stock.moves.length} תנועות מלאי לפני נובמבר\n(${stock.keptMoves} תנועות של נובמבר נשארות)\nעותק של הכל נשמר ב"_trash".`)) return;
+    setBusy("stock");
+    let ok = 0, fail = 0;
+    const all = [["stockItems", stock.items], ["containers", stock.containers], ["stockMoves", stock.moves]];
+    for (const [c, ids] of all) for (const id of ids) {
+      (await fsDeleteDocument(c, id)) ? ok++ : fail++;
+      setMsg(`מוחק מלאי… ${ok + fail}/${n}`);
+    }
+    // the test copy left in _trash during preparation (2026-11-03)
+    try {
+      const t = await getDb().collection("_trash").get();
+      for (const d of t.docs) if (/__probe$/.test(d.id)) await getDb().collection("_trash").doc(d.id).delete();
+    } catch (e) {}
+    setMsg(fail ? `נמחקו ${ok}, נכשלו ${fail} — לנסות שוב` : `✅ נמחקו ${ok} — המלאי הישן נוקה`);
+    setBusy("");
+    load();
+  };
+  const deleteJobs = async () => {
+    if (!oldJobs.length) return;
+    const open = oldJobs.filter(w => w.status !== "completed").length;
+    if (!ask(`למחוק ${oldJobs.length} עבודות שנפתחו לפני נובמבר (מתוכן ${open} פתוחות)?\n${keptJobs} עבודות של נובמבר נשארות.\nעותק של כל עבודה נשמר ב"_trash".\n\nלפני כן: לוודא שהסנכרון במשרד עודכן (גרסה 3/11).`)) return;
+    setBusy("jobs");
+    setMsg(`מוחק ${oldJobs.length} עבודות…`);
+    const ids = new Set(oldJobs.map(w => w.id));
+    setWorkOrders(prev => prev.filter(w => !ids.has(w.id))); // the app's own save removes them (copy to _trash first)
+    setTimeout(() => {
+      setMsg(`✅ ${oldJobs.length} עבודות נמחקו. בטלפונים של המתקינים — לרענן את האפליקציה.`);
+      setBusy("");
+    }, 4000);
+  };
+  const box = { border: `1px solid ${colors.border}`, borderRadius: 10, padding: 14, marginTop: 12 };
+  return h(Card, null,
+    h("div", { style: { fontWeight: 700, fontSize: 16 } }, "ניקוי נתונים לפני נובמבר"),
+    h("div", { style: { fontSize: 13, color: colors.textMuted, marginTop: 4 } }, "פעולה חד-פעמית לפני טעינת המלאי מהאקסל. כל מה שנמחק נשמר קודם ב-\"_trash\". נתוני נובמבר נשארים."),
+    h("div", { style: box },
+      h("div", { style: { fontWeight: 700 } }, "1. מלאי ישן"),
+      h("div", { style: { fontSize: 13, margin: "6px 0 10px" } }, !stock ? "טוען…" : `${stock.items.length} פריטי מלאי · ${stock.containers.length} מכולות · ${stock.moves.length} תנועות לפני נובמבר (${stock.keptMoves} של נובמבר נשארות)`),
+      h(Button, { size: "sm", variant: "danger", disabled: !!busy || !stock || !(stock.items.length + stock.containers.length + stock.moves.length), onClick: deleteStock }, "מחק מלאי ישן")),
+    h("div", { style: box },
+      h("div", { style: { fontWeight: 700 } }, "2. עבודות לפני נובמבר"),
+      h("div", { style: { fontSize: 13, margin: "6px 0 4px" } }, `${oldJobs.length} עבודות יימחקו (${oldJobs.filter(w => w.status !== "completed").length} פתוחות) · ${keptJobs} של נובמבר נשארות`),
+      h("div", { style: { fontSize: 12, color: colors.warning, marginBottom: 10 } }, "⚠ קודם לעדכן את הסנכרון במחשב במשרד (גרסה 3/11)."),
+      h(Button, { size: "sm", variant: "danger", disabled: !!busy || !oldJobs.length, onClick: deleteJobs }, "מחק עבודות לפני נובמבר")),
+    msg && h("div", { style: { marginTop: 12, fontWeight: 600 } }, msg));
+};
+const InventoryPage = ({ workOrders = [], setWorkOrders }) => {
   const h = React.createElement;
   const [items, setItems] = useState([]);
   const [moves, setMoves] = useState([]);
@@ -10099,7 +10776,7 @@ const InventoryPage = () => {
       color: colors.danger,
       fontWeight: 700
     }
-  }, negative.length, " פריטים במינוס — כדאי לעשות ספירה."))), !["containers", "madaf"].includes(tab) && h(Button, {
+  }, negative.length, " פריטים במינוס — כדאי לעשות ספירה."))), !["containers", "madaf", "cleanup"].includes(tab) && h(Button, {
     onClick: () => setForm({
       kind: tab,
       name: "",
@@ -10130,11 +10807,18 @@ const InventoryPage = () => {
     size: "sm",
     variant: tab === "madaf" ? "primary" : "outline",
     onClick: () => setTab("madaf")
-  }, "פריטי מדף"), !["containers", "madaf"].includes(tab) && h(SearchBar, {
+  }, "פריטי מדף"), setWorkOrders && h(Button, {
+    size: "sm",
+    variant: tab === "cleanup" ? "danger" : "outline",
+    onClick: () => setTab("cleanup")
+  }, "ניקוי לפני נובמבר"), !["containers", "madaf", "cleanup"].includes(tab) && h(SearchBar, {
     value: search,
     onChange: setSearch,
     placeholder: "חיפוש..."
-  })), tab === "containers" ? h(ContainersPanel, {
+  })), tab === "cleanup" ? h(CleanupPanel, {
+    workOrders,
+    setWorkOrders
+  }) : tab === "containers" ? h(ContainersPanel, {
     containers
   }) : tab === "madaf" ? h(MadafItemsPanel) : form && h(Card, {
     style: {
@@ -10240,7 +10924,7 @@ const InventoryPage = () => {
     size: "sm",
     variant: "outline",
     onClick: () => setForm(null)
-  }, "ביטול")), !["containers", "madaf"].includes(tab) && h(Card, {
+  }, "ביטול")), !["containers", "madaf", "cleanup"].includes(tab) && h(Card, {
     style: {
       padding: 0,
       overflow: "auto"
@@ -10407,6 +11091,8 @@ function withCatalog(lines, catalog) {
 }
 // Production cost of a custom job = the total of its saved drawings ("עלויות" in the drawing module)
 function jobProductionCost(job) {
+  if (job && job.modularDecode) return { status: "ok", cost: Number(job.modularDecode.cost) || 0, partial: !!job.modularDecode.partial, modular: true };
+  if (isModularJob(job)) return { status: "modular" };
   const items = job && job.drawing && Array.isArray(job.drawing.items) ? job.drawing.items.filter(i => i && i.cost) : [];
   if (!items.length) return { status: "nodrawing" };
   if (!job.measurementConfirmed) return { status: "waiting" };
@@ -10479,6 +11165,7 @@ async function runDeliveryStock(jobs, partMap, costs, stockItems) {
       const m = lineMapping(line, partMap);
       const entry = costs[String(d.no)] && costs[String(d.no)].lines && costs[String(d.no)].lines[idx];
       if (deliveryStockDone.has(k) || entry || !m || m.via === "suggest" || m.mode !== "stock") continue;
+      if (!job.isSupply && isModularJob(job) && textIsModular(line.desc)) continue; // its items leave stock in the decode
       const target = stockItems.find(i => i.id === m.stockItemId);
       if (!target) continue;
       deliveryStockDone.add(k);
@@ -10573,7 +11260,9 @@ const ProfitReport = ({ workOrders, installers }) => {
       const mapping = found && found.via !== "suggest" ? found : null;
       const suggestion = found && found.via === "suggest" ? found : null;
       // Nothing chosen yet on a custom job → its cost comes from the drawings
-      const production = entry ? entry.mode === "production" : mapping ? mapping.mode === "production" : !w.isSupply && w.productType === "custom";
+      // A modular job's model line is priced by its decode (the picked stock items), never taken from stock itself
+      const modularLine = !w.isSupply && isModularJob(w) && textIsModular(l.desc) && !(entry && entry.mode === "stock" && entry.taken);
+      const production = modularLine || (entry ? entry.mode === "production" : mapping ? mapping.mode === "production" : !w.isSupply && w.productType === "custom");
       return { ...l, idx, entry, mapping, suggestion, production, cost: production ? null : deliveryLineCost(l, entry, mapping) };
     });
     const pc = lines.some(l => l.production) ? jobProductionCost(w) : null;
@@ -10705,7 +11394,7 @@ const ProfitReport = ({ workOrders, installers }) => {
                 const modeOf = x => x.mode === "stock" ? x.stockItemId : x.mode === "none" ? NO_COST : x.mode === "production" ? PRODUCTION_COST : MANUAL_COST;
                 const current = l.entry ? modeOf(l.entry) : l.mapping ? modeOf(l.mapping) : l.production ? PRODUCTION_COST : "";
                 const firstProd = l.production && r.lines.find(x => x.production) === l;
-                const prodText = !l.production ? null : !firstProd ? "כלול בשורה למעלה" : r.pc.status === "ok" ? `מהשרטוט: ${fmtILS(r.pc.cost)}${r.pc.partial ? " (חסרים מחירים במחירון)" : ""}` : r.pc.status === "waiting" ? "ממתין לאישור מדידה" : "אין שרטוט שמור";
+                const prodText = !l.production ? null : !firstProd ? "כלול בשורה למעלה" : r.pc.status === "ok" && r.pc.modular ? `פענוח מודולרי: ${fmtILS(r.pc.cost)}${r.pc.partial ? " (חסרים מחירים)" : ""}` : r.pc.status === "ok" ? `מהשרטוט: ${fmtILS(r.pc.cost)}${r.pc.partial ? " (חסרים מחירים במחירון)" : ""}` : r.pc.status === "modular" ? "ממתין לפענוח מודולרי" : r.pc.status === "waiting" ? "ממתין לאישור מדידה" : "אין שרטוט שמור";
                 return h("tr", { key: l.idx, style: { borderBottom: `1px solid ${colors.border}` } },
                   h("td", { style: cell }, l.desc, h("div", { style: { fontSize: 11, color: colors.textMuted } }, "פריט " + l.part,
                     l.exact ? " · מרשימת הפריטים" : l.catalogName ? " · טקסט שונה מהרשימה" : " · נכתב ידנית"),
@@ -11966,6 +12655,7 @@ const BarakIntegrationPage = ({
     const pType = ri === 4 ? "custom" : "standard";
     const newWO = {
       id: woId,
+      createdAt: new Date().toISOString(),
       customerId: null,
       customerName: newName,
       customerPhone: phones[ri],
@@ -13526,6 +14216,18 @@ function App() {
       reportClient(acc);
     });
   }, [dbReady, accounts, currentUser]);
+  // Modular model names (פענוח מודולרי) — shared by every page that decides where a job belongs
+  const [modularNames, setModularNames] = useState([]);
+  useEffect(() => {
+    if (!dbReady || !currentUser) return;
+    const db = getDb();
+    if (!db) return;
+    return db.collection("_meta").doc("modularModels").onSnapshot(d => {
+      const names = d.exists && Array.isArray(d.data().names) ? d.data().names : [];
+      MODULAR_NAMES = names;
+      setModularNames(names);
+    }, e => console.warn("modularModels", e));
+  }, [dbReady, currentUser]);
   // Products on new Madaf delivery notes leave stock automatically (items already matched once in the profit report)
   useEffect(() => {
     if (!dbReady || !currentUser || currentUser.role !== "admin") return;
@@ -13605,6 +14307,10 @@ function App() {
     key: "waiting_glass",
     label: "ממתין לזכוכית",
     icon: Icons.glass
+  }, {
+    key: "modular",
+    label: "פענוח מודולרי",
+    icon: Icons.inventory
   }, {
     key: "quotes",
     label: "הצעות מחיר ממתינות",
@@ -13711,6 +14417,14 @@ function App() {
           serviceCalls: serviceCalls,
           initialFilter: "waiting_glass_nav"
         });
+      case "modular":
+        return /*#__PURE__*/React.createElement(ModularDecodePage, {
+          workOrders: workOrders,
+          setWorkOrders: setWorkOrders,
+          installers: installers,
+          currentUser: currentUser,
+          modularNames: modularNames
+        });
       case "quotes":
         return /*#__PURE__*/React.createElement(QuotesPendingPage, {
           workOrders: workOrders,
@@ -13726,7 +14440,10 @@ function App() {
           workOrders: workOrders
         });
       case "inventory":
-        return /*#__PURE__*/React.createElement(InventoryPage, null);
+        return /*#__PURE__*/React.createElement(InventoryPage, {
+          workOrders: workOrders,
+          setWorkOrders: setWorkOrders
+        });
       case "reports":
         return /*#__PURE__*/React.createElement(ReportsPage, {
           workOrders: workOrders,
@@ -13850,10 +14567,11 @@ function App() {
   }, navItems.map(item => {
     const openSCCount = item.key === "service" ? serviceCalls.filter(sc => sc.status !== "completed").length : 0;
     const preProductionCount = item.key === "pre_production" ? workOrders.filter(w => w.productType === "custom" && w.measured && !w.measurementConfirmed).length : 0;
-    const waitingGlassCount = item.key === "waiting_glass" ? workOrders.filter(w => w.productType === "custom" && w.measured && w.measurementConfirmed && !w.glassReady).length : 0;
-    const badgeCount = openSCCount || preProductionCount || waitingGlassCount;
+    const waitingGlassCount = item.key === "waiting_glass" ? workOrders.filter(w => w.productType === "custom" && w.measured && w.measurementConfirmed && !w.glassReady && !(isAdmin && isModularJob(w))).length : 0;
+    const modularCount = item.key === "modular" ? workOrders.filter(isWaitingModular).length : 0;
+    const badgeCount = openSCCount || preProductionCount || waitingGlassCount || modularCount;
     const isHighlighted = badgeCount > 0 && page !== item.key;
-    const badgeColor = item.key === "service" ? "#ef4444" : item.key === "pre_production" ? "#f59e0b" : item.key === "waiting_glass" ? "#8b5cf6" : "#ef4444";
+    const badgeColor = item.key === "service" ? "#ef4444" : item.key === "pre_production" ? "#f59e0b" : item.key === "waiting_glass" || item.key === "modular" ? "#8b5cf6" : "#ef4444";
     return /*#__PURE__*/React.createElement("button", {
       key: item.key,
       onClick: () => {
