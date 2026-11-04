@@ -137,7 +137,7 @@ const FIREBASE_CONFIG = {
   appId: "1:1042161550667:web:61a07d439a34c4705b94ce"
 };
 
-const APP_VERSION = "2026-11-04-modular-hadmaya";
+const APP_VERSION = "2026-11-04-resend-login";
 // ─── Password hashing — passwords are never stored in plain text ────
 async function hashPassword(accountId, pw) {
   const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode("bariline-v1|" + String(accountId) + "|" + String(pw || "")));
@@ -9390,7 +9390,123 @@ const StoreSuppliesPage = ({
     }
   }, list.map(renderCard)));
 };
-const CustomersPage = ({
+// ─── לקוחות: the stores (Madaf customers, _meta/madafStores) + the real end customers from the jobs ────
+const normPhone = p => String(p || "").replace(/\D/g, "").replace(/^972/, "0");
+const CustomersPage = ({ workOrders }) => {
+  const h = React.createElement;
+  const isMobile = useIsMobile();
+  const [tab, setTab] = useState("stores");
+  const [stores, setStores] = useState(null);
+  const [supplies, setSupplies] = useState([]);
+  const [search, setSearch] = useState("");
+  const [onlyActive, setOnlyActive] = useState(false);
+  const [open, setOpen] = useState(null);
+  const [limit, setLimit] = useState(100);
+  useEffect(() => {
+    const db = getDb();
+    if (!db) return;
+    const u1 = db.collection("_meta").doc("madafStores").onSnapshot(d => setStores(d.exists && d.data().stores || {}), e => console.warn("madafStores", e));
+    const u2 = db.collection("storeSupplies").onSnapshot(sn => setSupplies(sn.docs.map(d => d.data())), e => console.warn("storeSupplies", e));
+    return () => {
+      u1();
+      u2();
+    };
+  }, []);
+  const fmtD = d => d ? (d.length === 8 ? d.slice(6, 8) + "/" + d.slice(4, 6) + "/" + d.slice(2, 4) : d.slice(8, 10) + "/" + d.slice(5, 7) + "/" + d.slice(2, 4)) : "—";
+  // activity per store name: jobs + store supplies, sales from the delivery notes (before VAT)
+  const activity = useMemo(() => {
+    const a = {};
+    const get = n => a[n] = a[n] || { jobs: [], supplies: 0, sales: 0, last: "" };
+    workOrders.forEach(w => {
+      const n = jobStoreName(w);
+      if (!n) return;
+      const x = get(n);
+      x.jobs.push(w);
+      if (w.madafDelivery && w.madafDelivery.preVat) x.sales += Number(w.madafDelivery.preVat) || 0;
+      const d = w.createdDate || "";
+      if (d > x.last) x.last = d;
+    });
+    supplies.forEach(sp => {
+      const n = normStore(sp.store);
+      if (!n) return;
+      const x = get(n);
+      x.supplies++;
+      if (sp.madafDelivery && sp.madafDelivery.preVat) x.sales += Number(sp.madafDelivery.preVat) || 0;
+    });
+    return a;
+  }, [workOrders, supplies]);
+  const q = search.trim();
+  const storeRows = useMemo(() => {
+    if (!stores) return [];
+    const byName = {};
+    Object.entries(stores).forEach(([no, st]) => {
+      const n = normStore(st.name);
+      if (!n) return;
+      byName[n] = byName[n] || { name: n, city: st.city || "", nos: [] };
+      byName[n].nos.push(no);
+    });
+    // stores that appear on jobs but are not in the Madaf list (newer than the last upload)
+    Object.keys(activity).forEach(n => {
+      if (!byName[n]) byName[n] = { name: n, city: "", nos: [], notInList: true };
+    });
+    return Object.values(byName).map(r => ({ ...r, act: activity[r.name] || { jobs: [], supplies: 0, sales: 0, last: "" } }))
+      .sort((x, y) => (y.act.jobs.length + y.act.supplies) - (x.act.jobs.length + x.act.supplies) || x.name.localeCompare(y.name, "he"));
+  }, [stores, activity]);
+  const shownStores = storeRows.filter(r => (!onlyActive || r.act.jobs.length || r.act.supplies) && (!q || r.name.includes(q) || r.city.includes(q) || r.nos.some(n => n === q)));
+  // end customers: one row per phone (or name when there is no phone)
+  const people = useMemo(() => {
+    const m = {};
+    workOrders.forEach(w => {
+      const key = normPhone(w.customerPhone) || "name:" + (w.customerName || "").trim();
+      if (key === "name:") return;
+      const x = m[key] = m[key] || { name: w.customerName || "", phone: w.customerPhone || "", address: "", stores: new Set(), jobs: [], last: "" };
+      x.jobs.push(w);
+      if (w.address && !x.address) x.address = w.address;
+      const st = jobStoreName(w);
+      if (st) x.stores.add(st);
+      if ((w.createdDate || "") > x.last) {
+        x.last = w.createdDate || "";
+        x.name = w.customerName || x.name;
+      }
+    });
+    return Object.values(m).sort((a, b) => b.last.localeCompare(a.last));
+  }, [workOrders]);
+  const shownPeople = people.filter(p => !q || p.name.includes(q) || normPhone(p.phone).includes(normPhone(q) || "~") || p.address.includes(q));
+  const statusLabel = { pending: "ממתין", scheduled: "מתוזמן", "in-progress": "בביצוע", completed: "הושלם", rejected: "נדחה", pending_reject: "ממתין לאישור", problem: "בעיה", cancelled: "בוטל" };
+  const jobList = jobs => h("div", { style: { marginTop: 8, borderTop: `1px solid ${colors.border}`, paddingTop: 8 } },
+    jobs.length ? jobs.slice().sort(newestFirst).map(w => h("div", { key: w.id, style: { display: "flex", gap: 10, fontSize: 12, padding: "3px 0", flexWrap: "wrap" } },
+      h("b", { style: { color: colors.primary, minWidth: 90 } }, w.id), h("span", null, w.customerName), h("span", { style: { color: colors.textMuted } }, (w.product || "").slice(0, 50)),
+      h("span", { style: { marginRight: "auto", color: w.status === "completed" ? colors.success : colors.warning } }, statusLabel[w.status] || w.status), h("span", { style: { color: colors.textMuted } }, fmtD(w.createdDate)))) :
+    h("div", { style: { fontSize: 12, color: colors.textMuted } }, "אין עבודות ב-CRM"));
+  const tabBtn = (k, label) => h(Button, { size: "sm", variant: tab === k ? "primary" : "outline", onClick: () => { setTab(k); setOpen(null); setLimit(100); setSearch(""); } }, label);
+  const row = (key, main, sub, right, body) => h(Card, { key, onClick: () => setOpen(open === key ? null : key), style: { padding: "10px 14px", cursor: "pointer" } },
+    h("div", { style: { display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap", alignItems: "center" } },
+      h("div", null, h("div", { style: { fontWeight: 700, fontSize: 14 } }, main), h("div", { style: { fontSize: 12, color: colors.textMuted } }, sub)),
+      h("div", { style: { fontSize: 12, textAlign: "left" } }, right)),
+    open === key && body);
+  const list = tab === "stores" ? shownStores : shownPeople;
+  return h("div", null,
+    h("div", { style: { marginBottom: 12 } },
+      h("h2", { style: { margin: 0, fontSize: 22, fontWeight: 700 } }, "לקוחות"),
+      h("p", { style: { margin: "4px 0 0", fontSize: 14, color: colors.textLight } },
+        stores ? `${storeRows.length.toLocaleString()} חנויות (לקוחות מדף) · ${people.length.toLocaleString()} לקוחות פרטיים מהעבודות` : "טוען…")),
+    h("div", { style: { display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 12 } },
+      tabBtn("stores", "חנויות"), tabBtn("people", "לקוחות פרטיים"),
+      h("input", { value: search, onChange: e => { setSearch(e.target.value); setLimit(100); }, placeholder: tab === "stores" ? "חיפוש חנות / עיר / מספר במדף…" : "חיפוש שם / טלפון / כתובת…", style: { flex: 1, minWidth: 200, padding: "8px 10px", borderRadius: 8, border: `1px solid ${colors.border}`, fontFamily: "inherit", fontSize: 13 } }),
+      tab === "stores" && h("label", { style: { fontSize: 13, display: "flex", gap: 4, alignItems: "center" } }, h("input", { type: "checkbox", checked: onlyActive, onChange: e => setOnlyActive(e.target.checked) }), "רק חנויות עם פעילות")),
+    h("div", { style: { display: "flex", flexDirection: "column", gap: 6 } },
+      list.slice(0, limit).map(r => tab === "stores"
+        ? row("s:" + r.name, r.name, [r.city, r.nos.length ? "מס' במדף " + r.nos.join(", ") : r.notInList ? "חדשה – לא ברשימת מדף מ-21/10" : ""].filter(Boolean).join(" · "),
+            h("div", null, h("div", null, h("b", null, r.act.jobs.length), " עבודות", r.act.jobs.length ? ` (${r.act.jobs.filter(w => w.status !== "completed").length} פתוחות)` : "", r.act.supplies ? ` · ${r.act.supplies} אספקות` : ""),
+              r.act.sales ? h("div", { style: { color: colors.success, fontWeight: 600 } }, fmtILS(r.act.sales) + " לפני מע״מ") : null),
+            jobList(r.act.jobs))
+        : row("p:" + (normPhone(r.phone) || r.name), r.name, [r.phone, r.address, [...r.stores].join(", ")].filter(Boolean).join(" · "),
+            h("div", null, h("b", null, r.jobs.length), " עבודות · אחרונה ", fmtD(r.last)),
+            jobList(r.jobs))),
+      list.length > limit && h(Button, { variant: "outline", onClick: () => setLimit(limit + 200) }, `הצג עוד (${list.length - limit})`),
+      !list.length && h(Card, null, h("div", { style: { textAlign: "center", color: colors.textMuted } }, stores ? "לא נמצא" : "טוען…"))));
+};
+const CustomersPageDemo = ({
   workOrders
 }) => {
   const isMobile = useIsMobile();
@@ -12149,6 +12265,40 @@ const ReportsOverview = ({
 // ACCOUNT MANAGEMENT PAGE (Admin only)
 // ═══════════════════════════════════════════════════════════════════════════════
 
+// ─── Login details + a short how-to, sent to the user on WhatsApp ────
+const CRM_LOGIN_URL = "https://bariline.github.io/bariline-crm/";
+function loginMessage(acc, password) {
+  const isAdmin = acc.role === "admin";
+  const howTo = isAdmin ? `איך עובדים:
+1. נכנסים לקישור ומתחברים (בטלפון: תפריט הדפדפן ← "הוסף למסך הבית").
+2. "הזמנות עבודה" – כל העבודות, החדשה תמיד למעלה.
+3. "מדידות לפני ייצור" – מדידות שהמתקינים שלחו, לבדוק ולאשר.
+4. "פענוח מודולרי" – לבחור פריטים מהמלאי ולאשר.
+5. עבודות שכבר בוצעו – "סימון כבוצע" ברשימת העבודות.` : `איך עובדים עם המערכת:
+1. נכנסים לקישור ומתחברים. כדאי להוסיף למסך הבית: בתפריט הדפדפן ← "הוסף למסך הבית".
+2. "העבודות שלי" – כל העבודות שלך. העבודה החדשה תמיד למעלה.
+3. עבודה חדשה: לוחצים עליה ← "קח עבודה" ← בוחרים תאריך ושעה.
+4. מדידה: בתוך העבודה ← "פתח טופס מדידה" ← בוחרים פרופיל או צירים נקיים ← ממלאים מידות ← הלקוח חותם ← "✅ שמור ושלח למשרד".
+5. התקנה: ביום ההתקנה "התחל עבודה + צלם לפני", ובסוף "סיים עבודה + צלם אחרי" וחתימת הלקוח.
+6. יש בעיה? "דווח בעיה" בתוך העבודה, או מתקשרים למשרד.`;
+  return `שלום ${acc.name},
+
+פרטי הכניסה שלך למערכת בריליין:
+שם משתמש: ${acc.username}
+סיסמה: ${password}
+
+קישור למערכת:
+${CRM_LOGIN_URL}
+
+${howTo}
+
+בהצלחה!`;
+}
+function sendLoginWhatsApp(acc, password) {
+  const clean = String(acc.phone || "").replace(/[-\s]/g, "");
+  const intl = clean.startsWith("0") ? "972" + clean.slice(1) : clean;
+  window.open(`https://wa.me/${intl}?text=${encodeURIComponent(loginMessage(acc, password))}`, "_blank");
+}
 const AccountsPage = ({
   accounts,
   setAccounts,
@@ -12219,12 +12369,7 @@ const AccountsPage = ({
     }]));
     setShowCreate(false);
     // Send login details via WhatsApp
-    const loginUrl = "https://bariline.github.io/bariline-crm/";
-    const roleLabel = acc.role === "admin" ? "מנהל" : "מתקין";
-    const waMessage = `שלום ${acc.name},\n\nנוצר עבורך חשבון ${roleLabel} במערכת Bariline CRM.\n\nפרטי התחברות:\nשם משתמש: ${acc.username}\nסיסמה: ${initialPassword}\n\nקישור למערכת:\n${loginUrl}\n\nבהצלחה!`;
-    const phoneClean = acc.phone.replace(/[-\s]/g, "");
-    const intlPhone = phoneClean.startsWith("0") ? "972" + phoneClean.slice(1) : phoneClean;
-    window.open(`https://wa.me/${intlPhone}?text=${encodeURIComponent(waMessage)}`, "_blank");
+    sendLoginWhatsApp(acc, initialPassword);
     setNewAcc({
       name: "",
       phone: "",
@@ -12282,6 +12427,20 @@ const AccountsPage = ({
       setConfirmPassword("");
       setPassSuccess("");
     }, 1500);
+  };
+  // Passwords are stored encrypted, so an old one can't be sent again: set a new one and send it
+  const resendLogin = acc => {
+    if (!acc.phone) return alert("אין טלפון בחשבון — הוסיפו טלפון בעריכה");
+    const suggested = String(1000 + Math.floor(Math.random() * 9000));
+    const pw = (prompt(`שליחת פרטי כניסה ל-${acc.name} בוואטסאפ.\n\nהסיסמה הקודמת שמורה מוצפנת ואי אפשר לשלוח אותה שוב, לכן נקבע סיסמה חדשה (אפשר לשנות):`, suggested) || "").trim();
+    if (!pw) return;
+    if (pw.length < 4) return alert("סיסמה חייבת להכיל לפחות 4 תווים");
+    hashPassword(acc.id, pw).then(passwordHash => {
+      setAccounts(prev => prev.map(a => a.id === acc.id ? { ...a, passwordHash } : a));
+      const db = getDb();
+      if (db) db.collection("accounts").doc(String(acc.id)).update({ password: firebase.firestore.FieldValue.delete() }).catch(() => {});
+    });
+    sendLoginWhatsApp(acc, pw);
   };
   const saveEdit = () => {
     setAccounts(prev => prev.map(a => a.id === editAccount.id ? editAccount : a));
@@ -12429,6 +12588,10 @@ const AccountsPage = ({
       ...acc
     })
   }, Icons.edit, " \u05E2\u05E8\u05D5\u05DA"), /*#__PURE__*/React.createElement(Button, {
+    variant: "outline",
+    size: "sm",
+    onClick: () => resendLogin(acc)
+  }, "📲 שלח פרטי כניסה"), /*#__PURE__*/React.createElement(Button, {
     variant: "outline",
     size: "sm",
     onClick: () => {
