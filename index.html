@@ -137,7 +137,7 @@ const FIREBASE_CONFIG = {
   appId: "1:1042161550667:web:61a07d439a34c4705b94ce"
 };
 
-const APP_VERSION = "2026-11-04-profile-models";
+const APP_VERSION = "2026-11-04-modular-flow";
 // ─── Password hashing — passwords are never stored in plain text ────
 async function hashPassword(accountId, pw) {
   const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode("bariline-v1|" + String(accountId) + "|" + String(pw || "")));
@@ -397,7 +397,69 @@ function isModularJob(w) {
   if (cm && Array.isArray(cm.systems) && cm.systems.includes("profile")) return true; // measured as פרופיל = modular
   return textIsModular([w.product].concat((w.madafDelivery && w.madafDelivery.lines || []).map(l => l.desc)).join(" | "));
 }
-const isWaitingModular = w => w.productType === "custom" && w.status !== "completed" && w.measured && w.measurementConfirmed && !w.glassReady && isModularJob(w);
+// Modular flow: measured → (office makes the quote in Madaf) → delivery note → פענוח (אשר מדידה + פענוח there)
+const hasMadafDelivery = w => !!(w && (w.madafDeliveryNo || w.madafDelivery && w.madafDelivery.no));
+const isWaitingModular = w => w.productType === "custom" && w.status !== "completed" && w.measured && !w.glassReady && isModularJob(w) && (w.measurementConfirmed || hasMadafDelivery(w) || w.modularReady);
+// "מדידות לפני ייצור": a modular job leaves it as soon as there is a quote / delivery note (or the admin sent it on)
+function isPreProdJob(w) {
+  if (!(w.productType === "custom" && w.status !== "completed" && w.measured && !w.measurementConfirmed)) return false;
+  return !(isModularJob(w) && (w.madafQuote || hasMadafDelivery(w) || w.modularReady));
+}
+// Layouts of the modular models = the layouts of their צירים נקיים twins (same as the measurement page)
+const MODULAR_LAYOUTS = { "וושינגטון": "קבוע+דלת / קבוע+דלת", "קולורדו": "קבוע / דלת+דלת", "וגאס": "קבוע+דלת / הרמוניקה", "וירג'יניה": "דלת / דלת",
+  "מיסיסיפי": "דלת / הרמוניקה", "ניו ג'רזי": "קבוע+דלת / דלת", "קולומבוס": "קבוע / דלת", "שארלוט": "קבוע / הרמוניקה", "פילדלפיה": "הרמוניקה / הרמוניקה",
+  "אריזונה": "קבוע+דלת+דלת+קבוע", "פלורידה": "קבוע+דלת+דלת", "טקסס": "הרמוניקה+הרמוניקה", "קליפורניה": "הרמוניקה", "פנסילבניה": "דלת",
+  "אלסקה": "קבוע+דלת", "אלסקה פתיחה מהאמצע": "קבוע+דלת" };
+// STORE price list (₪ before VAT — what the stores pay us; not our cost, not the end-customer price), nickel / black profile — office price sheet 2026-11-04; the admin can edit it in פענוח מודולרי
+const MODULAR_PRICE_DEFAULTS = {
+  "וירג'יניה": { n: 700, b: 850 }, "וושינגטון": { n: 1050, b: 1200 }, "פילדלפיה": { n: 1050, b: 1200 }, "קולורדו": { n: 950, b: 1100 },
+  "וגאס": { n: 1060, b: 1210 }, "מיסיסיפי": { n: 885, b: 1035 }, "ניו ג'רזי": { n: 860, b: 1010 }, "קולומבוס": { n: 850, b: 1000 },
+  "שארלוט": { n: 1035, b: 1185 }, "פלורידה": { n: 900, b: 1050 }, "אריזונה": { n: 1060, b: 1200 }, "טקסס": { n: 1050, b: 1200 },
+  "אלסקה": { n: 850, b: null }, "אלסקה פתיחה מהאמצע": { n: 850, b: 1000, upTo: 120, n2: 900, b2: 1050, upTo2: 180 },
+  "קליפורניה": { n: 535, b: 685 }, "פנסילבניה": { n: 350, b: 500 },
+  "ניו יורק": { n: 420, b: 500 }, "דאלס": { n: 650, b: 750 }, "מלודי": { n: 650, b: 750 }, "לוגנו": { n: 450, b: 500 },
+  "חזית פאלס עד 100": { n: 430, b: 500 }, "חזית פאלס עד 140": { n: 480, b: 550 }, "אמבטיון מיאמי 1": { n: 370, b: 450 },
+  "מיאמי 2 הרמוניקה": { n: 450, b: 500 }, "דופן קבוע אורלנדו": { n: 350, b: 400 } };
+let MODULAR_PRICES = MODULAR_PRICE_DEFAULTS;
+const TYPE_OF = { "קבוע": "fixed", "דלת": "door", "הרמוניקה": "harm" };
+const layoutSides = str => str.split("/").map(x => x.trim().split("+").map(t => TYPE_OF[t.trim()]));
+// Which modular model a measured shower option is: by its written name, else by its layout (mirror images count)
+function detectModularModel(o) {
+  if (!o) return null;
+  const sides = (o.sides || []).map(sd => (sd.els || []).map(e => e.type));
+  if (!sides.length || sides.some(sd => !sd.length)) return { model: null, why: "אין תצורה במדידה" };
+  // stored: first side wall→corner, last side corner→wall
+  const norm = sides.length >= 2 ? [sides[0], sides[sides.length - 1].slice().reverse()] : sides;
+  const key = arr => arr.join("+");
+  const same = (a, b) => {
+    if (a.length !== b.length) return false;
+    if (a.length === 1) return key(a[0]) === key(b[0]) || key(a[0]) === key(b[0].slice().reverse());
+    return key(a[0]) === key(b[0]) && key(a[1]) === key(b[1]) || key(a[0]) === key(b[1]) && key(a[1]) === key(b[0]);
+  };
+  let byLayout = Object.keys(MODULAR_LAYOUTS).filter(m => same(norm, layoutSides(MODULAR_LAYOUTS[m])));
+  if (byLayout.includes("אלסקה")) {
+    // אלסקה: the door turns on the fixed glass; פתיחה מהאמצע: on the wall
+    const els = o.sides[0].els, d = els.findIndex(e => e.type === "door");
+    const fixedLeft = els[d - 1] && els[d - 1].type === "fixed";
+    const onWall = els[d].hinge === (fixedLeft ? "right" : "left");
+    byLayout = [onWall ? "אלסקה פתיחה מהאמצע" : "אלסקה"];
+  }
+  const typed = Object.keys(MODULAR_LAYOUTS).sort((a, b) => b.length - a.length).find(m => normModular(o.model).includes(normModular(m)));
+  const width = (o.sides || []).reduce((s, sd) => s + (sd.els || []).reduce((t, e) => t + (Number(e.w) || 0), 0), 0);
+  const fromLayout = byLayout[0] || null;
+  if (typed && fromLayout && !(typed === fromLayout || typed.startsWith("אלסקה") && fromLayout.startsWith("אלסקה")))
+    return { model: fromLayout, typed, width, warn: `נכתב "${typed}" אבל התצורה היא של ${fromLayout}` };
+  if (typed) return { model: typed.startsWith("אלסקה") && fromLayout ? fromLayout : typed, width, how: "name" };
+  if (fromLayout) return { model: fromLayout, width, how: "layout" };
+  return { model: null, width, why: "התצורה לא מתאימה לאף דגם מודולרי" };
+}
+function modularPrice(model, finish, width) {
+  const p = MODULAR_PRICES[model] || MODULAR_PRICE_DEFAULTS[model];
+  if (!p) return null;
+  const black = String(finish || "").includes("שחור");
+  if (p.upTo && width > p.upTo) return black ? p.b2 : p.n2;
+  return black ? p.b : p.n;
+}
 
 // Fields that contain large base64 data — save to localStorage instead of Firestore
 const LOCAL_STORAGE_FIELDS = ["measurementPhoto", "orderPdfData", "signedWarrantyData"];
@@ -4738,11 +4800,11 @@ const WorkOrdersPage = ({
   };
   const statusCounts = {};
   statuses.forEach(s => {
-    if (s === "all") statusCounts[s] = visibleOrders.filter(w => w.status !== "completed" && !(w.productType === "custom" && w.status !== "completed" && w.measured && !w.measurementConfirmed) && !(w.productType === "custom" && w.status !== "completed" && w.measured && w.measurementConfirmed && !w.glassReady)).length;else if (s === "waiting_glass") statusCounts[s] = visibleOrders.filter(w => w.productType === "custom" && w.status !== "completed" && w.measured && w.measurementConfirmed && !w.glassReady && !(role === "admin" && isModularJob(w))).length;else if (s === "waiting_glass_nav") statusCounts[s] = visibleOrders.filter(w => w.productType === "custom" && w.status !== "completed" && w.measured && w.measurementConfirmed && !w.glassReady && !(role === "admin" && isModularJob(w))).length;else if (s === "pre_production") statusCounts[s] = visibleOrders.filter(w => w.productType === "custom" && w.status !== "completed" && w.measured && !w.measurementConfirmed).length;else statusCounts[s] = visibleOrders.filter(w => w.status === s).length;
+    if (s === "all") statusCounts[s] = visibleOrders.filter(w => w.status !== "completed" && !(role === "admin" && isWaitingModular(w)) && !(isPreProdJob(w)) && !(w.productType === "custom" && w.status !== "completed" && w.measured && w.measurementConfirmed && !w.glassReady)).length;else if (s === "waiting_glass") statusCounts[s] = visibleOrders.filter(w => w.productType === "custom" && w.status !== "completed" && w.measured && w.measurementConfirmed && !w.glassReady && !(role === "admin" && isModularJob(w))).length;else if (s === "waiting_glass_nav") statusCounts[s] = visibleOrders.filter(w => w.productType === "custom" && w.status !== "completed" && w.measured && w.measurementConfirmed && !w.glassReady && !(role === "admin" && isModularJob(w))).length;else if (s === "pre_production") statusCounts[s] = visibleOrders.filter(isPreProdJob).length;else statusCounts[s] = visibleOrders.filter(w => w.status === s).length;
   });
   const filtered = visibleOrders.filter(w => {
     const ms = w.id.toLowerCase().includes(search.toLowerCase()) || w.customerName.includes(search) || (w.installerName || "").includes(search);
-    const isPreProd = w.productType === "custom" && w.status !== "completed" && w.measured && !w.measurementConfirmed;
+    const isPreProd = isPreProdJob(w);
     const isWaitGlass = w.productType === "custom" && w.status !== "completed" && w.measured && w.measurementConfirmed && !w.glassReady && !(role === "admin" && isModularJob(w));
     let mst;
     if (statusFilter === "all") {
@@ -4850,6 +4912,12 @@ const WorkOrdersPage = ({
       label: "ממתין למדידה",
       color: colors.warning,
       icon: Icons.ruler
+    };
+    if (!wo.measurementConfirmed && isModularJob(wo)) return {
+      step: 2,
+      label: hasMadafDelivery(wo) || wo.modularReady ? "בפענוח מודולרי — לאשר מדידה ולבחור פריטים" : wo.madafQuote ? "ממתין לאישור הצעת המחיר" : "מדידה בוצעה — להפיק הצעת מחיר במדף",
+      color: "#f59e0b",
+      icon: Icons.inventory
     };
     if (!wo.measurementConfirmed) return {
       step: 2,
@@ -6117,7 +6185,7 @@ const WorkOrdersPage = ({
         background: isStandard ? "#dbeafe" : "#fae8ff",
         color: isStandard ? "#2563eb" : "#a21caf"
       }
-    }, isStandard ? "סטנדרט" : "צירים נקיים"), /*#__PURE__*/React.createElement(StatusBadge, {
+    }, isStandard ? "סטנדרט" : isModularJob(wo) ? "מודולרי" : "צירים נקיים"), /*#__PURE__*/React.createElement(StatusBadge, {
       status: wo.status
     })), /*#__PURE__*/React.createElement("div", {
       style: {
@@ -6161,7 +6229,10 @@ const WorkOrdersPage = ({
         fontWeight: 600,
         color: daysLeft <= 3 ? colors.danger : daysLeft <= 7 ? colors.warning : colors.success
       }
-    }, daysLeft > 0 ? `${daysLeft} ימים להתקנה` : daysLeft === 0 ? "היום!" : `באיחור של ${Math.abs(daysLeft)} ימים`), wo.status !== "completed" && wo.status !== "cancelled" && !isStandard && customStep && /*#__PURE__*/React.createElement("div", {
+    }, daysLeft > 0 ? `${daysLeft} ימים להתקנה` : daysLeft === 0 ? "היום!" : `באיחור של ${Math.abs(daysLeft)} ימים`), role === "admin" && wo.status !== "completed" && wo.measured && isModularJob(wo) && /*#__PURE__*/React.createElement(ModularInfo, {
+      job: wo,
+      compact: true
+    }), wo.status !== "completed" && wo.status !== "cancelled" && !isStandard && customStep && /*#__PURE__*/React.createElement("div", {
       style: {
         fontSize: 11,
         marginTop: 3,
@@ -6415,7 +6486,7 @@ const WorkOrdersPage = ({
         background: selIsStandard ? "#dbeafe" : "#fae8ff",
         color: selIsStandard ? "#2563eb" : "#a21caf"
       }
-    }, selIsStandard ? "סטנדרט" : "צירים נקיים")), /*#__PURE__*/React.createElement("p", {
+    }, selIsStandard ? "סטנדרט" : isModularJob(selected) ? "מודולרי" : "צירים נקיים")), /*#__PURE__*/React.createElement("p", {
       style: {
         margin: "4px 0 0",
         color: colors.textLight,
@@ -6708,7 +6779,16 @@ const WorkOrdersPage = ({
         fontWeight: 600,
         padding: "6px 0"
       }
-    }, Icons.warning, " \u05D9\u05E9 \u05DC\u05E9\u05D1\u05E5 \u05DE\u05EA\u05E7\u05D9\u05DF \u05DC\u05E4\u05E0\u05D9 \u05DE\u05D3\u05D9\u05D3\u05D4"), selected.measured && !selected.measurementConfirmed && role === "admin" && /*#__PURE__*/React.createElement(Button, {
+    }, Icons.warning, " \u05D9\u05E9 \u05DC\u05E9\u05D1\u05E5 \u05DE\u05EA\u05E7\u05D9\u05DF \u05DC\u05E4\u05E0\u05D9 \u05DE\u05D3\u05D9\u05D3\u05D4"), selected.measured && !selected.measurementConfirmed && role === "admin" && isModularJob(selected) && /*#__PURE__*/React.createElement("div", {
+      style: { fontSize: 12, color: colors.purple, fontWeight: 600, padding: "6px 0", display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }
+    }, Icons.inventory, isWaitingModular(selected) ? " מודולרי – אישור המדידה בעמוד \"פענוח מודולרי\"" : " מודולרי – אישור המדידה יהיה בפענוח, אחרי תעודת המשלוח", !isWaitingModular(selected) && /*#__PURE__*/React.createElement(Button, {
+      size: "sm",
+      variant: "outline",
+      onClick: () => {
+        setWorkOrders(prev => prev.map(w => w.id === selected.id ? { ...w, modularReady: true } : w));
+        setSelected({ ...selected, modularReady: true });
+      }
+    }, "העבר לפענוח עכשיו")), selected.measured && !selected.measurementConfirmed && role === "admin" && !isModularJob(selected) && /*#__PURE__*/React.createElement(Button, {
       size: "sm",
       onClick: () => confirmMeasurement(selected.id)
     }, Icons.check, " \u05D0\u05E9\u05E8 \u05DE\u05D3\u05D9\u05D3\u05D4 \u05D5\u05E9\u05DC\u05D7 \u05DC\u05D9\u05D9\u05E6\u05D5\u05E8"), selected.measured && !selected.measurementConfirmed && role !== "admin" && /*#__PURE__*/React.createElement("div", {
@@ -6757,7 +6837,13 @@ const WorkOrdersPage = ({
         padding: "4px 0",
         fontFamily: "inherit"
       }
-    }, isModularJob(selected) ? "זה לא דגם מודולרי" : "סמן כדגם מודולרי")), currentMeasurement(selected) && /*#__PURE__*/React.createElement("div", {
+    }, isModularJob(selected) ? "זה לא דגם מודולרי" : "סמן כדגם מודולרי")), role === "admin" && isModularJob(selected) && selected.measured && /*#__PURE__*/React.createElement(ModularInfo, {
+      job: selected,
+      setWorkOrders: (fn) => {
+        setWorkOrders(fn);
+        setSelected(prev => fn([prev])[0]);
+      }
+    }), currentMeasurement(selected) && /*#__PURE__*/React.createElement("div", {
       style: {
         marginTop: 12,
         padding: 10,
@@ -9690,6 +9776,54 @@ async function modularPlan(job, stockItems) {
   }));
   return { options };
 }
+// ─── Model + price of a modular job's measurement (ADMIN ONLY — never shown to installers) ────
+const modularInfoCache = {};
+const ModularInfo = ({ job, compact, setWorkOrders }) => {
+  const h = React.createElement;
+  const m = currentMeasurement(job);
+  const [opts, setOpts] = useState(m && modularInfoCache[m.hash] || null);
+  useEffect(() => {
+    if (!m || !m.hash || modularInfoCache[m.hash]) return;
+    let alive = true;
+    readMeasureHash(m.hash).then(data => {
+      const items = data && Array.isArray(data.items) ? data.items : data && data.sides ? [{ room: "", opts: [data] }] : [];
+      const out = [];
+      items.forEach((it, i) => (it.opts || []).forEach((o, j) => {
+        if (o.system === "clean") return;
+        const label = (it.room || (items.length > 1 ? `מקלחון ${i + 1}` : "")) + ((it.opts || []).length > 1 ? ` אופציה ${o.opt || (j ? "ב" : "א")}` : "");
+        out.push({ label: label.trim(), finish: o.finish || "", det: detectModularModel(o) });
+      }));
+      modularInfoCache[m.hash] = out;
+      if (alive) setOpts(out);
+    }).catch(() => alive && setOpts([]));
+    return () => {
+      alive = false;
+    };
+  }, [m && m.hash]);
+  if (!m) return null;
+  if (!opts) return compact ? null : h("div", { style: { fontSize: 12, color: colors.textMuted } }, "מחשב מחיר…");
+  const chosen = job.modularModel; // the admin's choice wins
+  const lines = opts.map(o => {
+    const model = chosen || o.det && o.det.model;
+    const price = model ? modularPrice(model, o.finish, o.det && o.det.width) : null;
+    return { ...o, model, price, warn: !chosen && o.det && (o.det.warn || (!o.det.model ? "לא זוהה דגם – לבחור דגם" : "")) };
+  });
+  const prof = f => String(f).includes("שחור") ? "שחור" : "ניקל";
+  if (compact) return h("div", { style: { fontSize: 12, marginTop: 4, display: "flex", gap: 10, flexWrap: "wrap" } }, lines.map((l, i) => h("span", { key: i, style: { fontWeight: 700, color: l.warn ? colors.warning : colors.success } },
+    l.warn ? "⚠ " + l.warn : `${l.label ? l.label + ": " : ""}${l.model} · ${prof(l.finish)} · ${l.price != null ? "₪" + l.price.toLocaleString() + " לחנות" : "אין מחיר"}`)));
+  return h("div", { style: { marginTop: 10, padding: "10px 12px", background: "#f0fdf4", border: `1px solid ${colors.success}55`, borderRadius: 10, fontSize: 13 } },
+    h("div", { style: { fontWeight: 700, marginBottom: 4 } }, "דגם ומחיר לחנות – לפני מע״מ (מנהל בלבד)"),
+    lines.map((l, i) => h("div", { key: i, style: { marginTop: 2 } },
+      l.label && h("b", null, l.label + ": "),
+      l.model ? `${l.model} · פרופיל ${prof(l.finish)} · ` : "",
+      l.model ? h("b", null, l.price != null ? "₪" + l.price.toLocaleString() : "אין מחיר במחירון") : null,
+      l.det && l.det.how === "layout" && !chosen ? h("span", { style: { color: colors.textMuted } }, " (זוהה לפי התצורה)") : null,
+      l.warn ? h("div", { style: { color: "#9a3412", fontWeight: 600 } }, "⚠ " + l.warn) : null)),
+    setWorkOrders && h("div", { style: { marginTop: 6, fontSize: 12 } }, "דגם: ",
+      h("select", { value: chosen || "", onChange: e => setWorkOrders(prev => prev.map(w => w.id === job.id ? { ...w, modularModel: e.target.value || null } : w)), style: { fontFamily: "inherit", fontSize: 12 } },
+        h("option", { value: "" }, "אוטומטי (לפי המדידה)"),
+        Object.keys(MODULAR_LAYOUTS).map(k => h("option", { key: k, value: k }, k)))));
+};
 // ─── דף הרכבה: printable sheet for whoever puts the modular mix together ────
 const qtyText = q => {
   const n = Number(q) || 0,
@@ -9728,6 +9862,31 @@ ${warnings.length ? `<div class="warn"><b>⚠ לשים לב:</b><br>${warnings.m
   win.document.write(html);
   win.document.close();
 }
+// Price list editor (admin) — _meta/modularPrices {prices:{model:{n,b,...}}}
+const ModularPriceEditor = () => {
+  const h = React.createElement;
+  const [rows, setRows] = useState(() => JSON.parse(JSON.stringify(MODULAR_PRICES)));
+  const [msg, setMsg] = useState("");
+  const set = (k, f, v) => setRows(prev => ({ ...prev, [k]: { ...prev[k], [f]: v === "" ? null : Number(v) } }));
+  const save = async () => {
+    try {
+      await getDb().collection("_meta").doc("modularPrices").set({ prices: rows, updatedAt: new Date().toISOString() });
+      setMsg("✅ נשמר");
+    } catch (e) {
+      setMsg("השמירה נכשלה");
+    }
+  };
+  const inp = (k, f) => h("input", { type: "number", value: rows[k][f] == null ? "" : rows[k][f], onChange: e => set(k, f, e.target.value), style: { width: 80, padding: 4, borderRadius: 6, border: `1px solid ${colors.border}`, fontFamily: "inherit" } });
+  const cell = { padding: "5px 8px", borderBottom: `1px solid ${colors.border}`, fontSize: 13, textAlign: "right" };
+  return h(Card, null,
+    h("div", { style: { fontWeight: 700, marginBottom: 8 } }, "מחירון לחנויות – לפני מע״מ, לפי דגם ופרופיל (מנהל בלבד)"),
+    h("table", { style: { borderCollapse: "collapse", width: "100%" } },
+      h("thead", null, h("tr", null, ["דגם", "ניקל", "שחור", "מעל רוחב (ס\"מ)", "ניקל", "שחור"].map((t, i) => h("th", { key: i, style: { ...cell, fontWeight: 700, background: "#f8fafc" } }, t)))),
+      h("tbody", null, Object.keys(rows).map(k => h("tr", { key: k },
+        h("td", { style: cell }, k), h("td", { style: cell }, inp(k, "n")), h("td", { style: cell }, inp(k, "b")),
+        h("td", { style: cell }, rows[k].upTo != null ? inp(k, "upTo") : ""), h("td", { style: cell }, rows[k].upTo != null ? inp(k, "n2") : ""), h("td", { style: cell }, rows[k].upTo != null ? inp(k, "b2") : ""))))),
+    h("div", { style: { display: "flex", gap: 10, alignItems: "center", marginTop: 10 } }, h(Button, { size: "sm", onClick: save }, "שמור מחירון"), msg && h("span", null, msg)));
+};
 // ─── פענוח מודולרי (admin) ────────────────────────────────────────────────
 // Jobs of a modular model, measured and confirmed: pick the standard stock items that build it (0.5 allowed).
 // "סיים פענוח" takes them out of stock (showers: oldest container first) and works like "זכוכית מוכנה".
@@ -10041,13 +10200,28 @@ const ModularDecodePage = ({ workOrders, setWorkOrders, installers, currentUser,
         h(Button, { size: "sm", variant: "outline", disabled: !lines.length, onClick: () => printAssemblySheet(w, lines, ((plans[w.id] || {}).options || []).filter(o => o.rows).map(o => ({ label: o.label, rows: o.rows.map(r => r.side + ": " + r.text) })), ((plans[w.id] || {}).options || []).flatMap(o => o.warnings || []), stockItems, false) }, "🖨 דף הרכבה"),
         h(Button, { size: "sm", variant: "ghost", onClick: () => { setOpenId(null); setSearch(""); } }, "סגור")));
   };
+  const confirmHere = w => {
+    if (!confirm(`לאשר את המדידה של ${w.customerName}?`)) return;
+    const now = new Date();
+    setWorkOrders(prev => prev.map(x => x.id === w.id ? {
+      ...x,
+      measurementConfirmed: true,
+      measurementConfirmedDate: now.toISOString().split("T")[0],
+      activityLog: [...(x.activityLog || []), { ...logEntry("measurement_confirmed") }]
+    } : x));
+  };
   const waitingCard = w => {
     const open = openId === w.id;
     const lines = linesOf(w);
     return h(Card, { key: w.id, style: { borderRight: `4px solid ${colors.purple}`, padding: isMobile ? 14 : 18, opacity: busy && open ? 0.6 : 1 } },
       jobHeader(w),
       measureBox(w),
-      !open && h("div", { style: { display: "flex", alignItems: "center", gap: 10, marginTop: 10, flexWrap: "wrap" } },
+      h(ModularInfo, { job: w, setWorkOrders }),
+      !w.measurementConfirmed && h("div", { style: { display: "flex", alignItems: "center", gap: 10, marginTop: 10, flexWrap: "wrap" } },
+        h("span", { style: { fontSize: 13, fontWeight: 700, color: colors.purple } }, "שלב 1:"),
+        h(Button, { size: "sm", variant: "success", onClick: () => confirmHere(w) }, Icons.check, " אשר מדידה"),
+        h("span", { style: { fontSize: 12, color: colors.textMuted } }, "אחרי האישור – שלב 2: בחירת הפריטים מהמלאי")),
+      w.measurementConfirmed && !open && h("div", { style: { display: "flex", alignItems: "center", gap: 10, marginTop: 10, flexWrap: "wrap" } },
         h(Button, { size: "sm", onClick: () => { setOpenId(w.id); setSearch(""); } }, Icons.inventory, " בחר פריטים מהמלאי"),
         lines.length > 0 && h("span", { style: { fontSize: 12, color: colors.textMuted } }, "טיוטה: " + lines.map(l => `${l.name} × ${fmtQty(l.qty)}`).join(", "))),
       open && picker(w));
@@ -10079,7 +10253,8 @@ const ModularDecodePage = ({ workOrders, setWorkOrders, installers, currentUser,
       h("div", { style: { display: "flex", gap: 8 } },
         h("input", { value: newName, onChange: e => setNewName(e.target.value), onKeyDown: e => e.key === "Enter" && addName(), placeholder: "שם דגם להוספה", style: { flex: 1, padding: "8px 10px", borderRadius: 8, border: `1px solid ${colors.border}`, fontSize: 13, fontFamily: "inherit" } }),
         h(Button, { size: "sm", onClick: addName }, "הוסף"))),
-    h("div", { style: { display: "flex", gap: 8 } }, tabBtn("waiting", `ממתינים לפענוח (${waiting.length})`), tabBtn("done", `הושלמו (${done.length})`)),
+    h("div", { style: { display: "flex", gap: 8 } }, tabBtn("waiting", `ממתינים לפענוח (${waiting.length})`), tabBtn("done", `הושלמו (${done.length})`), tabBtn("prices", "מחירון")),
+    tab === "prices" && h(ModularPriceEditor),
     tab === "waiting" && (waiting.length ? waiting.map(waitingCard) : h(Card, null, h("div", { style: { textAlign: "center", color: colors.textMuted, fontSize: 14 } }, "אין עבודות שממתינות לפענוח"))),
     tab === "done" && (done.length ? done.slice(0, 50).map(doneCard) : h(Card, null, h("div", { style: { textAlign: "center", color: colors.textMuted, fontSize: 14 } }, "עדיין לא הושלמו פענוחים"))));
 };
@@ -14339,6 +14514,16 @@ function App() {
       setModularNames(names);
     }, e => console.warn("modularModels", e));
   }, [dbReady, currentUser]);
+  const [, setPriceTick] = useState(0);
+  useEffect(() => {
+    if (!dbReady || !currentUser || currentUser.role !== "admin") return;
+    const db = getDb();
+    if (!db) return;
+    return db.collection("_meta").doc("modularPrices").onSnapshot(d => {
+      MODULAR_PRICES = d.exists && d.data().prices ? { ...MODULAR_PRICE_DEFAULTS, ...d.data().prices } : MODULAR_PRICE_DEFAULTS;
+      setPriceTick(t => t + 1);
+    }, e => console.warn("modularPrices", e));
+  }, [dbReady, currentUser]);
   // Products on new Madaf delivery notes leave stock automatically (items already matched once in the profit report)
   useEffect(() => {
     if (!dbReady || !currentUser || currentUser.role !== "admin") return;
@@ -14677,7 +14862,7 @@ function App() {
     }
   }, navItems.map(item => {
     const openSCCount = item.key === "service" ? serviceCalls.filter(sc => sc.status !== "completed").length : 0;
-    const preProductionCount = item.key === "pre_production" ? workOrders.filter(w => w.productType === "custom" && w.status !== "completed" && w.measured && !w.measurementConfirmed).length : 0;
+    const preProductionCount = item.key === "pre_production" ? workOrders.filter(isPreProdJob).length : 0;
     const waitingGlassCount = item.key === "waiting_glass" ? workOrders.filter(w => w.productType === "custom" && w.status !== "completed" && w.measured && w.measurementConfirmed && !w.glassReady && !(isAdmin && isModularJob(w))).length : 0;
     const modularCount = item.key === "modular" ? workOrders.filter(isWaitingModular).length : 0;
     const badgeCount = openSCCount || preProductionCount || waitingGlassCount || modularCount;
