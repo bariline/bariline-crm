@@ -137,7 +137,7 @@ const FIREBASE_CONFIG = {
   appId: "1:1042161550667:web:61a07d439a34c4705b94ce"
 };
 
-const APP_VERSION = "2026-11-04-bulk-done";
+const APP_VERSION = "2026-11-04-profile-models";
 // ─── Password hashing — passwords are never stored in plain text ────
 async function hashPassword(accountId, pw) {
   const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode("bariline-v1|" + String(accountId) + "|" + String(pw || "")));
@@ -394,6 +394,7 @@ function isModularJob(w) {
   if (w.productType !== "custom") return false;
   const cm = currentMeasurement(w);
   if (cm && Array.isArray(cm.systems) && cm.systems.length && !cm.systems.includes("profile")) return false;
+  if (cm && Array.isArray(cm.systems) && cm.systems.includes("profile")) return true; // measured as פרופיל = modular
   return textIsModular([w.product].concat((w.madafDelivery && w.madafDelivery.lines || []).map(l => l.desc)).join(" | "));
 }
 const isWaitingModular = w => w.productType === "custom" && w.status !== "completed" && w.measured && w.measurementConfirmed && !w.glassReady && isModularJob(w);
@@ -4888,7 +4889,7 @@ const WorkOrdersPage = ({
     };
     // Take the drawing's hardware out of stock — once per order
     if (wo && !wo.stockDeducted) {
-      const lines = orderHardwareLines(wo);
+      const lines = isModularJob(wo) ? [] : orderHardwareLines(wo);
       if (lines.length === 0) {
         if (!isModularJob(wo) && !confirm("\u05D0\u05D9\u05DF \u05E9\u05E8\u05D8\u05D5\u05D8 \u05E9\u05DE\u05D5\u05E8 \u05D1\u05D4\u05D6\u05DE\u05E0\u05D4 \u2014 \u05D4\u05E4\u05E8\u05D6\u05D5\u05DC \u05DC\u05D0 \u05D9\u05E8\u05D3 \u05DE\u05D4\u05DE\u05DC\u05D0\u05D9. \u05DC\u05E9\u05DC\u05D5\u05D7 \u05DC\u05D9\u05D9\u05E6\u05D5\u05E8 \u05D1\u05DB\u05DC \u05D6\u05D0\u05EA?")) return;
       } else {
@@ -9689,6 +9690,44 @@ async function modularPlan(job, stockItems) {
   }));
   return { options };
 }
+// ─── דף הרכבה: printable sheet for whoever puts the modular mix together ────
+const qtyText = q => {
+  const n = Number(q) || 0,
+    whole = Math.floor(n),
+    half = Math.abs(n - whole - 0.5) < 0.01;
+  return half ? whole ? whole + "½" : "½" : String(Math.round(n * 100) / 100);
+};
+function printAssemblySheet(job, items, calc, warnings, stockItems, approved) {
+  const esc = t => String(t == null ? "" : t).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+  const m = currentMeasurement(job) || {};
+  const code = id => (stockItems.find(i => i.id === id) || {}).code || "";
+  const today = new Date().toLocaleDateString("he-IL");
+  const rows = items.map((l, i) => `<tr><td>${i + 1}</td><td><b>${esc(l.name)}</b></td><td>${esc(l.finish)}</td><td>${esc(code(l.itemId))}</td><td class="q">${esc(qtyText(l.qty))}</td><td class="box"></td></tr>`).join("");
+  const html = `<!doctype html><html dir="rtl" lang="he"><head><meta charset="utf-8"><title>דף הרכבה – ${esc(job.id)}</title>
+<style>body{font-family:Arial,sans-serif;margin:24px;color:#111}h1{font-size:22px;margin:0 0 4px}.sub{color:#555;font-size:13px;margin-bottom:14px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:4px 24px;font-size:14px;margin-bottom:14px}.box2{border:1px solid #bbb;border-radius:6px;padding:8px 10px;margin:10px 0;font-size:13px;white-space:pre-wrap}
+table{width:100%;border-collapse:collapse;font-size:15px}th,td{border:1px solid #999;padding:7px 8px;text-align:right}th{background:#eee}td.q{font-size:18px;font-weight:700;text-align:center;width:70px}td.box{width:40px}
+.warn{background:#fff4e5;border:1px solid #f0b46a;border-radius:6px;padding:8px 10px;margin-top:10px;font-size:13px}.sign{display:flex;gap:40px;margin-top:36px;font-size:14px}.sign div{flex:1;border-top:1px solid #333;padding-top:4px}
+@media print{body{margin:10mm}}</style></head><body>
+<h1>דף הרכבה – פענוח מודולרי</h1>
+<div class="sub">${approved ? "מאושר" : "טיוטה – טרם אושר"} · הודפס ${esc(today)}</div>
+<div class="grid"><div><b>עבודה:</b> ${esc(job.id)}</div><div><b>לקוח:</b> ${esc(job.customerName)}</div>
+<div><b>טלפון:</b> ${esc(job.customerPhone || "—")}</div><div><b>כתובת:</b> ${esc(job.address || "—")}</div>
+<div><b>מוצר:</b> ${esc(job.product || "—")}</div><div><b>מתקין:</b> ${esc(job.installerName || "—")}</div></div>
+${m.summary ? `<div class="box2"><b>מידות הלקוח</b>\n${esc(m.summary)}</div>` : ""}
+${calc.length ? `<div class="box2"><b>החישוב</b>\n${calc.map(o => (calc.length > 1 ? o.label + "\n" : "") + o.rows.map(esc).join("\n")).join("\n\n")}</div>` : ""}
+<h2 style="font-size:17px;margin:16px 0 6px">מה לקחת מהמלאי</h2>
+<table><thead><tr><th>#</th><th>פריט</th><th>זכוכית · פרופיל</th><th>קוד</th><th>כמות</th><th>✔</th></tr></thead><tbody>${rows}</tbody></table>
+<div style="font-size:12px;color:#555;margin-top:6px">½ = חצי יחידה (דלת אחת מתוך חזית / פינתי של 2 דלתות)</div>
+${warnings.length ? `<div class="warn"><b>⚠ לשים לב:</b><br>${warnings.map(esc).join("<br>")}</div>` : ""}
+<div class="sign"><div>הוכן ע״י</div><div>תאריך</div><div>נבדק ע״י</div></div>
+<script>window.onload=()=>setTimeout(()=>window.print(),300)<\/script></body></html>`;
+  const win = window.open("", "_blank");
+  if (!win) return alert("הדפדפן חסם חלון חדש — לאפשר חלונות קופצים לאתר");
+  win.document.open();
+  win.document.write(html);
+  win.document.close();
+}
 // ─── פענוח מודולרי (admin) ────────────────────────────────────────────────
 // Jobs of a modular model, measured and confirmed: pick the standard stock items that build it (0.5 allowed).
 // "סיים פענוח" takes them out of stock (showers: oldest container first) and works like "זכוכית מוכנה".
@@ -9868,7 +9907,7 @@ const ModularDecodePage = ({ workOrders, setWorkOrders, installers, currentUser,
       setWorkOrders(prev => prev.map(x => x.id === w.id ? {
         ...x,
         modular: true,
-        modularDecode: { items, cost, partial, warnings: ((plans[w.id] || {}).options || []).flatMap(o => o.warnings || []), at: new Date().toISOString(), by: currentUser && currentUser.name || "מנהל" },
+        modularDecode: { items, cost, partial, warnings: ((plans[w.id] || {}).options || []).flatMap(o => o.warnings || []), calc: ((plans[w.id] || {}).options || []).filter(o => o.rows).map(o => ({ label: o.label, rows: o.rows.map(r => r.side + ": " + r.text) })), at: new Date().toISOString(), by: currentUser && currentUser.name || "מנהל" },
         modularDraft: null,
         glassReady: true,
         glassReadyDate: today,
@@ -9999,6 +10038,7 @@ const ModularDecodePage = ({ workOrders, setWorkOrders, installers, currentUser,
       h("div", { style: { display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" } },
         h(Button, { size: "sm", variant: "success", disabled: busy || !lines.length, onClick: () => finish(w) }, Icons.check, " אשר פענוח והורד מהמלאי"),
         h(Button, { size: "sm", variant: "outline", disabled: busy || !drafts[w.id], onClick: () => saveDraft(w) }, "שמור טיוטה"),
+        h(Button, { size: "sm", variant: "outline", disabled: !lines.length, onClick: () => printAssemblySheet(w, lines, ((plans[w.id] || {}).options || []).filter(o => o.rows).map(o => ({ label: o.label, rows: o.rows.map(r => r.side + ": " + r.text) })), ((plans[w.id] || {}).options || []).flatMap(o => o.warnings || []), stockItems, false) }, "🖨 דף הרכבה"),
         h(Button, { size: "sm", variant: "ghost", onClick: () => { setOpenId(null); setSearch(""); } }, "סגור")));
   };
   const waitingCard = w => {
@@ -10020,7 +10060,9 @@ const ModularDecodePage = ({ workOrders, setWorkOrders, installers, currentUser,
       h("div", { style: { fontSize: 12, marginTop: 8 } }, dec.items.map((l, i) => h("div", { key: i }, `• ${l.name}${l.finish ? " · " + l.finish : ""} × ${fmtQty(l.qty)}`, l.unitCost != null ? h("span", { style: { color: colors.textMuted } }, ` (${fmtILS(l.unitCost)} ליח׳)`) : h("span", { style: { color: colors.warning } }, " (אין מחיר)")))),
       h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, marginTop: 8, flexWrap: "wrap" } },
         h("div", { style: { fontSize: 12, color: colors.textLight } }, "עלות: ", h("b", null, fmtILS(dec.cost)), dec.partial ? " (חסרים מחירים)" : "", " · ", fmtD((dec.at || "").slice(0, 10)), dec.by ? " · " + dec.by : ""),
-        canUndo && h(Button, { size: "sm", variant: "outline", disabled: busy, onClick: () => undo(w) }, "בטל פענוח")));
+        h("div", { style: { display: "flex", gap: 6 } },
+          h(Button, { size: "sm", variant: "outline", onClick: () => printAssemblySheet(w, dec.items, dec.calc || [], dec.warnings || [], stockItems, true) }, "🖨 דף הרכבה"),
+          canUndo && h(Button, { size: "sm", variant: "outline", disabled: busy, onClick: () => undo(w) }, "בטל פענוח"))));
   };
   const tabBtn = (key, label) => h("button", { key, onClick: () => setTab(key), style: { padding: "8px 16px", borderRadius: 8, border: "none", cursor: "pointer", fontFamily: "inherit", fontSize: 13, fontWeight: 600, background: tab === key ? colors.primary : "#f1f5f9", color: tab === key ? "#fff" : colors.text } }, label);
   return h("div", { style: { display: "flex", flexDirection: "column", gap: 16 } },

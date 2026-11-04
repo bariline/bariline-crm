@@ -610,5 +610,68 @@ body.bl-view #blSysView{display:block}
   paint(); setTimeout(paint, 300); setTimeout(paint, 1200);
 })();
 </script>
+<!-- ===== Bariline add-on: modular (פרופיל) models. Each one uses the layout of its צירים נקיים twin; original code above is unchanged. ===== -->
+<script>
+(function(){
+  // modular model → its twin with the same layout (only the hardware differs)
+  const TWINS = { 'וושינגטון':'אוסטין', 'קולורדו':'אינדיאנה', 'וגאס':'סאן דייגו', "וירג'יניה":'אוהיו', 'מיסיסיפי':"לוס אנג'לס",
+    "ניו ג'רזי":'בוסטון', 'קולומבוס':'דנוור', 'שארלוט':'ממפיס', 'פילדלפיה':'מישיגן',
+    'אריזונה':'טולדו', 'פלורידה':'מיזורי', 'טקסס':'קרוליינה', 'קליפורניה':'מרילנד', 'פנסילבניה':'קליבלנד',
+    'אלסקה':'טנסי', 'אלסקה פתיחה מהאמצע':'טנסי' };
+  window.BL_PROFILE_TWINS = TWINS;
+  const list = document.getElementById('modelList');
+  const input = document.getElementById('f_model');
+  if (!list || !input) return;
+  const fill = () => {
+    const names = O.system === 'profile' ? Object.keys(TWINS) : Object.keys(DEFAULT_TEMPLATES);
+    list.innerHTML = names.map(m => `<option value="${esc(m)}">`).join('');
+    input.placeholder = O.system === 'profile' ? 'וושינגטון / אריזונה…' : 'אוסטין / טנסי…';
+  };
+  // which modular model was typed (the longest name that matches, so "אלסקה פתיחה מהאמצע" wins over "אלסקה")
+  const modularOf = m => {
+    const n = normModel(m);
+    if (!n) return null;
+    const keys = Object.keys(TWINS).sort((a, b) => b.length - a.length);
+    return keys.find(k => normModel(k) === n) || keys.find(k => n.includes(normModel(k))) || null;
+  };
+  window.blModularOf = modularOf;
+  const build = (model) => {
+    const twin = TWINS[model];
+    const sides = parseTemplate(DEFAULT_TEMPLATES[twin]);
+    if (!sides) return;
+    applyTemplate(sides);
+    // אלסקה: the door turns on the fixed glass (opens at the wall); פתיחה מהאמצע: turns on the wall (opens in the middle)
+    if (model.startsWith('אלסקה')) {
+      O.sides.forEach(sd => sd.els.forEach((el, k) => {
+        if (el.type !== 'door') return;
+        const leftFixed = sd.els[k - 1] && sd.els[k - 1].type === 'fixed';
+        const toFixed = leftFixed ? 'left' : 'right', toWall = leftFixed ? 'right' : 'left';
+        el.hinge = model.includes('מהאמצע') ? toWall : toFixed;
+      }));
+      refresh();
+    }
+    document.getElementById('modelHint').textContent = `דגם מודולרי (פרופיל) – התצורה כמו ${twin}, רק הפרזול שונה. עכשיו רק המידות.`;
+  };
+  input.addEventListener('input', () => {
+    const model = modularOf(O.model);
+    if (!model) return;
+    if (O.system !== 'profile') { const b = document.querySelector('#blSys [data-s="profile"]'); if (b) b.click(); }
+    const empty = !O.sides.length || O.sides.every(sd => sd.els.every(e => !Number(e.w)));
+    if (empty) build(model);
+    else {
+      const hint = document.getElementById('modelHint');
+      hint.innerHTML = `לבנות מחדש את התצורה לפי ${esc(model)}? <button class="small" id="blRebuild">כן, בנה</button>`;
+      document.getElementById('blRebuild').onclick = () => build(model);
+    }
+  });
+  // keep the model list matching the chosen system
+  document.querySelectorAll('#blSys [data-s]').forEach(b => b.addEventListener('click', () => setTimeout(fill, 0)));
+  const origSelect2 = selectOpt;
+  selectOpt = function (i, j) { origSelect2(i, j); fill(); };
+  const origHeader = renderHeader;
+  renderHeader = function () { origHeader.apply(this, arguments); fill(); };
+  fill(); setTimeout(fill, 300); setTimeout(fill, 1200);
+})();
+</script>
 </body>
 </html>
