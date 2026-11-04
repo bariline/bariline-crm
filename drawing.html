@@ -1683,5 +1683,26 @@ try{ const t=localStorage.getItem('bl_tab'); if(t&&$('tab-'+t)) document.querySe
 })();
 </script>
 
+<!-- ===== Bariline add-on: modular (פרופיל) הדמיה — no clamps / hinges / handles (the glass sits in wall profiles); only the הרמוניקה fold hinges stay. Original code above is unchanged. ===== -->
+<script>
+(function(){
+  const NAMES = ['וושינגטון','קולורדו','וגאס',"וירג'יניה",'מיסיסיפי',"ניו ג'רזי",'קולומבוס','שארלוט','פילדלפיה','אריזונה','פלורידה','טקסס','קליפורניה','פנסילבניה','אלסקה'];
+  const FLAG = new URLSearchParams(location.search).get('profile') === '1';   // the CRM opens a modular job with profile=1
+  const isProfile = () => FLAG || (typeof O !== 'undefined' && O && (O.system === 'profile' || NAMES.some(n => String(O.model || '').includes(n))));
+  if (typeof assembledSVG !== 'function') return;
+  const orig = assembledSVG;
+  assembledSVG = function (C, box, fs) {
+    let s = orig.apply(this, arguments);
+    if (!isProfile()) return s;
+    fs = fs || 1;
+    s = s.replace(/<circle [^>]*fill="#fff" stroke="#111" stroke-width="2\.2"\/>/g, '')                       // clamps on the fixed glass
+         .replace(/<rect [^>]*stroke-width="2\.4"\/><line [^>]*stroke-width="1\.2"\/>/g, '')                  // door hinges
+         .replace(/<circle [^>]*fill="#fff" stroke="#111" stroke-width="1\.8"\/>/g, '');                     // handle knob
+    const hasHarm = (O.sides || []).some(sd => (sd.els || []).some(e => e.type === 'harm'));
+    if (hasHarm && box) s += txt(box.x + box.w / 2, box.y + box.h - 6 * fs, '▢ = צירי הקיפול של ההרמוניקה (פרופיל מודולרי)', { size: 12 * fs, anchor: 'middle' });
+    return s;
+  };
+})();
+</script>
 </body>
 </html>
