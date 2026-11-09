@@ -36,6 +36,16 @@
 <body>
 <div id="root"><div class="brl-loading">טוען Bariline CRM...</div></div>
 <script>
+// Speed: start downloading every library at once; the loader below still runs them in order.
+['https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js',
+ 'https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js',
+ 'https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js',
+ 'https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js',
+ 'https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js'].forEach(function(u) {
+  var l = document.createElement('link'); l.rel = 'preload'; l.as = 'script'; l.crossOrigin = 'anonymous'; l.href = u; document.head.appendChild(l);
+});
+</script>
+<script>
 // Sequential loader: guarantees each script is fully loaded before the next
 function loadScript(src) {
   return new Promise(function(resolve, reject) {
@@ -77,11 +87,14 @@ loadReact().then(async function(ok) {
     document.getElementById('root').innerHTML = '<div style="text-align:center;padding:40px;font-size:18px;color:red;direction:rtl;">שגיאה בטעינת React. בדוק חיבור אינטרנט ורענן את הדף.</div>';
     return;
   }
-  try { await loadScript(pdfUrl); } catch(e) { console.warn('PDF.js failed to load', e); }
-  try { await loadScript(pdfLibUrl); } catch(e) { console.warn('pdf-lib failed to load', e); }
-  if (window.pdfjsLib) {
-    window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-  }
+  // PDF tools are only needed later (viewing / signing) — load them in the background, don't block the start
+  window.brlPdfReady = (async function() {
+    try { await loadScript(pdfUrl); } catch(e) { console.warn('PDF.js failed to load', e); }
+    try { await loadScript(pdfLibUrl); } catch(e) { console.warn('pdf-lib failed to load', e); }
+    if (window.pdfjsLib) {
+      window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    }
+  })();
   // Load Firebase
   try {
     await loadScript(firebaseAppUrl);
@@ -137,7 +150,7 @@ const FIREBASE_CONFIG = {
   appId: "1:1042161550667:web:61a07d439a34c4705b94ce"
 };
 
-const APP_VERSION = "2026-11-04-resend-login";
+const APP_VERSION = "2026-11-05-fast-load-modular-ready-2";
 // ─── Password hashing — passwords are never stored in plain text ────
 async function hashPassword(accountId, pw) {
   const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode("bariline-v1|" + String(accountId) + "|" + String(pw || "")));
@@ -311,9 +324,51 @@ const usageCounters = {
   deletes: 0,
   sessionStart: Date.now()
 };
+// ─── Speed: work orders come from one live listener ─────────────────────────
+// The jobs (with their photos / PDFs) are ~16 MB. Re-downloading them on every open and every
+// refresh made the app slow on phones. The listener shows the copy saved on the device at once and
+// then downloads only the jobs that changed. When fresh data arrives from the server, onServer() runs.
+const woLive = { started: false, snap: null, fromCache: true, failed: false, waiters: [], onServer: null };
+function startWorkOrdersLive() {
+  const db = getDb();
+  if (!db || woLive.started) return;
+  woLive.started = true;
+  const wake = () => woLive.waiters.splice(0).forEach(f => f());
+  try {
+    db.collection(COLLECTIONS.workOrders).onSnapshot({ includeMetadataChanges: true }, snap => {
+      const fromCache = snap.metadata.fromCache;
+      if (fromCache && snap.empty && !woLive.snap) return; // nothing saved on this device yet — wait for the server
+      try { usageCounters.reads += snap.docChanges().length; } catch (e) {}
+      const wasCache = woLive.fromCache;
+      woLive.snap = snap;
+      woLive.fromCache = fromCache;
+      wake();
+      if (wasCache && !fromCache && woLive.onServer) woLive.onServer();
+    }, err => {
+      console.warn("workOrders listener", err);
+      woLive.failed = true;
+      wake();
+    });
+  } catch (e) {
+    woLive.failed = true;
+  }
+}
+async function woLiveRead() {
+  startWorkOrdersLive();
+  if (!woLive.snap && !woLive.failed) await new Promise(res => {
+    woLive.waiters.push(res);
+    setTimeout(res, 60000);
+  });
+  if (woLive.failed || !woLive.snap) return null;
+  return woLive.snap.docs.map(doc => loadLocalFields(COLLECTIONS.workOrders, { _docId: doc.id, ...doc.data() }));
+}
 async function fsLoadCollection(collectionName, fromServer) {
   const db = getDb();
   if (!db) return null;
+  if (collectionName === COLLECTIONS.workOrders) {
+    const live = await woLiveRead();
+    if (live) return live;
+  }
   try {
     const opts = fromServer ? {
       source: "server"
@@ -399,8 +454,11 @@ function isModularJob(w) {
 }
 // Modular flow: measured → (office makes the quote in Madaf) → delivery note → פענוח (אשר מדידה + פענוח there)
 const hasMadafDelivery = w => !!(w && (w.madafDeliveryNo || w.madafDelivery && w.madafDelivery.no));
-const isWaitingModular = w => w.productType === "custom" && w.status !== "completed" && w.measured && !w.glassReady && isModularJob(w) && (w.measurementConfirmed || hasMadafDelivery(w) || w.modularReady);
+const isWaitingModular = w => w.productType === "custom" && w.status !== "completed" && w.measured && !w.glassReady && !w.modularDecode && isModularJob(w) && (w.measurementConfirmed || hasMadafDelivery(w) || w.modularReady);
 // "מדידות לפני ייצור": a modular job leaves it as soon as there is a quote / delivery note (or the admin sent it on)
+// "ממתין לזכוכית": custom jobs sent to production. For the admin a modular job joins only after its פענוח
+// (until then it waits on the "פענוח מודולרי" page). After "מוכן" (glassReady) it goes to the installer.
+const isWaitGlassJob = (w, role) => w.productType === "custom" && w.status !== "completed" && w.measured && w.measurementConfirmed && !w.glassReady && (role !== "admin" || !isModularJob(w) || !!w.modularDecode);
 function isPreProdJob(w) {
   if (!(w.productType === "custom" && w.status !== "completed" && w.measured && !w.measurementConfirmed)) return false;
   return !(isModularJob(w) && (w.madafQuote || hasMadafDelivery(w) || w.modularReady));
@@ -588,6 +646,7 @@ function processSignatureWhiteBg(dataUrl) {
 //   "שם לקוח:__________" → x: 131.1–241.1, pdf-y: 366.6–378.9
 //   "חתימה:_____________" → x: 234.5–354.9, pdf-y: 323.4–335.7
 async function createSignedWarrantyPdf(warrantyBase64, signatureDataUrl, customerName, orderId, completedDate) {
+  try { await window.brlPdfReady; } catch (e) {}
   if (!window.PDFLib) {
     console.warn("pdf-lib not loaded");
     return null;
@@ -4250,6 +4309,7 @@ const PhotoImportModal = ({
       for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
       setPdfBase64("data:application/pdf;base64," + btoa(binary));
       setPdfStatus("קורא טקסט...");
+      try { await window.brlPdfReady; } catch (e) {}
       const pdf = await window.pdfjsLib.getDocument({
         data: new Uint8Array(arrayBuf)
       }).promise;
@@ -4631,6 +4691,7 @@ const PdfRenderer = ({
         const binary = atob(base64);
         const bytes = new Uint8Array(binary.length);
         for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+        try { await window.brlPdfReady; } catch (e) {}
         const pdf = await window.pdfjsLib.getDocument({
           data: bytes
         }).promise;
@@ -4712,6 +4773,7 @@ const WorkOrdersPage = ({
   const isMobile = useIsMobile();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState(initialFilter || "all");
+  const [glassKind, setGlassKind] = useState("clean"); // "ממתין לזכוכית" (admin): צירים נקיים | מודולרי
   const [showCreate, setShowCreate] = useState(false);
   const [driveToast, setDriveToast] = useState(null);
   const driveToastTimer = useRef(null);
@@ -4814,17 +4876,17 @@ const WorkOrdersPage = ({
   };
   const statusCounts = {};
   statuses.forEach(s => {
-    if (s === "all") statusCounts[s] = visibleOrders.filter(w => w.status !== "completed" && !(role === "admin" && isWaitingModular(w)) && !(isPreProdJob(w)) && !(w.productType === "custom" && w.status !== "completed" && w.measured && w.measurementConfirmed && !w.glassReady)).length;else if (s === "waiting_glass") statusCounts[s] = visibleOrders.filter(w => w.productType === "custom" && w.status !== "completed" && w.measured && w.measurementConfirmed && !w.glassReady && !(role === "admin" && isModularJob(w))).length;else if (s === "waiting_glass_nav") statusCounts[s] = visibleOrders.filter(w => w.productType === "custom" && w.status !== "completed" && w.measured && w.measurementConfirmed && !w.glassReady && !(role === "admin" && isModularJob(w))).length;else if (s === "pre_production") statusCounts[s] = visibleOrders.filter(isPreProdJob).length;else statusCounts[s] = visibleOrders.filter(w => w.status === s).length;
+    if (s === "all") statusCounts[s] = visibleOrders.filter(w => w.status !== "completed" && !(role === "admin" && isWaitingModular(w)) && !(isPreProdJob(w)) && !(w.productType === "custom" && w.status !== "completed" && w.measured && w.measurementConfirmed && !w.glassReady)).length;else if (s === "waiting_glass") statusCounts[s] = visibleOrders.filter(w => isWaitGlassJob(w, role)).length;else if (s === "waiting_glass_nav") statusCounts[s] = visibleOrders.filter(w => isWaitGlassJob(w, role)).length;else if (s === "pre_production") statusCounts[s] = visibleOrders.filter(isPreProdJob).length;else statusCounts[s] = visibleOrders.filter(w => w.status === s).length;
   });
   const filtered = visibleOrders.filter(w => {
     const ms = w.id.toLowerCase().includes(search.toLowerCase()) || w.customerName.includes(search) || (w.installerName || "").includes(search);
     const isPreProd = isPreProdJob(w);
-    const isWaitGlass = w.productType === "custom" && w.status !== "completed" && w.measured && w.measurementConfirmed && !w.glassReady && !(role === "admin" && isModularJob(w));
+    const isWaitGlass = isWaitGlassJob(w, role);
     let mst;
     if (statusFilter === "all") {
       mst = w.status !== "completed" && !isPreProd && !isWaitGlass && !(role === "admin" && isWaitingModular(w));
     } else if (statusFilter === "waiting_glass" || statusFilter === "waiting_glass_nav") {
-      mst = isWaitGlass;
+      mst = isWaitGlass && (role !== "admin" || (glassKind === "modular") === isModularJob(w));
     } else if (statusFilter === "pre_production") {
       mst = isPreProd;
     } else {
@@ -4941,7 +5003,7 @@ const WorkOrdersPage = ({
     };
     if (!wo.glassReady) return isModularJob(wo) ? {
       step: 3,
-      label: "ממתין לפענוח מודולרי",
+      label: wo.modularDecode ? "בהכנה — ממתין לאישור \"מוכן\"" : "ממתין לפענוח מודולרי",
       color: colors.purple,
       icon: Icons.inventory
     } : {
@@ -5438,7 +5500,9 @@ const WorkOrdersPage = ({
     // Notify installer via WhatsApp
     if (wo && wo.installerId) {
       const inst = installers.find(i => i.id === wo.installerId);
-      if (inst) {
+      if (inst && isModularJob(wo)) {
+        notifyInstaller(inst.phone, `שלום ${inst.name},\n\nעבודה חדשה במערכת Bariline!\nהמקלחון מוכן להתקנה ✅\n\nלקוח: ${wo.customerName}\nטלפון: ${wo.customerPhone || "—"}\nמוצר: ${wo.product || "—"}\nכתובת: ${wo.address || "—"}\n\nיש להיכנס למערכת ולקבוע תאריך התקנה:\nhttps://bariline.github.io/bariline-crm/`);
+      } else if (inst) {
         const msg = `שלום ${inst.name},\n\nהזכוכית מוכנה להזמנה:\n\nלקוח: ${wo.customerName}\nמוצר: ${wo.product}\nכתובת: ${wo.address || "—"}\n\nיש להיכנס למערכת ולקבוע תאריך התקנה:\nhttps://bariline.github.io/bariline-crm/`;
         notifyInstaller(inst.phone, msg);
       }
@@ -5871,7 +5935,18 @@ const WorkOrdersPage = ({
     })),
     active: statusFilter,
     onSelect: setStatusFilter
-  }), viewMode === "calendar" && (() => {
+  }), role === "admin" && viewMode === "list" && (statusFilter === "waiting_glass" || statusFilter === "waiting_glass_nav") && (() => {
+    const all = visibleOrders.filter(w => isWaitGlassJob(w, role));
+    const nMod = all.filter(isModularJob).length;
+    const btn = (key, label, n) => React.createElement("button", {
+      key,
+      onClick: () => setGlassKind(key),
+      style: { padding: "8px 18px", borderRadius: 20, border: `2px solid ${glassKind === key ? colors.purple : colors.border}`, background: glassKind === key ? colors.purple : "#fff", color: glassKind === key ? "#fff" : colors.text, fontWeight: 700, fontSize: 14, cursor: "pointer", fontFamily: "inherit" }
+    }, label, " (", n, ")");
+    return React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" } },
+      btn("clean", "צירים נקיים", all.length - nMod), btn("modular", "מודולרי", nMod),
+      glassKind === "modular" && React.createElement("span", { style: { fontSize: 12, color: colors.textMuted } }, "אחרי הפענוח · כשמוכן: פותחים את העבודה ← \"מוכן — העבר למתקין\""));
+  })(), viewMode === "calendar" && (() => {
     const today = new Date();
     const todayStr = today.toISOString().split("T")[0];
     const year = calMonth.getFullYear();
@@ -6719,7 +6794,7 @@ const WorkOrdersPage = ({
       done: selected.measurementConfirmed,
       date: selected.measurementConfirmedDate
     }, {
-      label: isModularJob(selected) ? "פענוח מודולרי" : "זכוכית מוכנה",
+      label: isModularJob(selected) ? (selected.modularDecode && !selected.glassReady ? "פוענח · ממתין ל״מוכן״" : "פענוח ומוכן") : "זכוכית מוכנה",
       done: selected.glassReady,
       date: selected.glassReadyDate
     }, {
@@ -6813,7 +6888,19 @@ const WorkOrdersPage = ({
         fontWeight: 600,
         padding: "6px 0"
       }
-    }, Icons.warning, " \u05DE\u05D3\u05D9\u05D3\u05D4 \u05D1\u05D5\u05E6\u05E2\u05D4 \u2014 \u05DE\u05DE\u05EA\u05D9\u05DF \u05DC\u05D0\u05D9\u05E9\u05D5\u05E8 \u05DE\u05E0\u05D4\u05DC"), selected.measurementConfirmed && !selected.glassReady && role === "admin" && isModularJob(selected) && /*#__PURE__*/React.createElement("div", {
+    }, Icons.warning, " \u05DE\u05D3\u05D9\u05D3\u05D4 \u05D1\u05D5\u05E6\u05E2\u05D4 \u2014 \u05DE\u05DE\u05EA\u05D9\u05DF \u05DC\u05D0\u05D9\u05E9\u05D5\u05E8 \u05DE\u05E0\u05D4\u05DC"), selected.measurementConfirmed && !selected.glassReady && role === "admin" && isModularJob(selected) && selected.modularDecode && /*#__PURE__*/React.createElement(Button, {
+      size: "sm",
+      variant: "success",
+      onClick: () => {
+        if (!confirm(`המקלחון של ${selected.customerName} מוכן?\nהעבודה תעבור למתקין ותישלח לו הודעה.`)) return;
+        markGlassReady(selected.id);
+        setSelected({
+          ...selected,
+          glassReady: true,
+          glassReadyDate: new Date().toISOString().split("T")[0]
+        });
+      }
+    }, Icons.check, " מוכן — העבר למתקין"), selected.measurementConfirmed && !selected.glassReady && role === "admin" && isModularJob(selected) && !selected.modularDecode && /*#__PURE__*/React.createElement("div", {
       style: {
         fontSize: 12,
         color: colors.purple,
@@ -9079,7 +9166,7 @@ const QuotesPendingPage = ({
   };
   const remindStore = wo => {
     const q = wo.madafQuote;
-    openWhatsApp(q.storePhone, `שלום,\nרצינו לבדוק לגבי הצעת מחיר מס' ${q.no} עבור הלקוח ${wo.customerName} (${q.amount ? Number(q.amount).toLocaleString("he-IL") + " ₪" : ""}).\nנשמח לאישור כדי שנתקדם לייצור/התקנה.\nתודה, בריליין`);
+    window.open(`https://wa.me/?text=${encodeURIComponent(`שלום,\nרצינו לבדוק לגבי הצעת מחיר מס' ${q.no} עבור הלקוח ${wo.customerName} (${q.amount ? Number(q.amount).toLocaleString("he-IL") + " ₪" : ""}).\nנשמח לאישור כדי שנתקדם לייצור/התקנה.\nתודה, בריליין`)}`, "_blank");
     setWorkOrders(prev => prev.map(w => w.id === wo.id ? {
       ...w,
       madafQuote: {
@@ -9153,8 +9240,7 @@ const QuotesPendingPage = ({
     }, tab === "pending" && React.createElement(Button, {
       variant: days >= QUOTE_WARN_DAYS ? "primary" : "outline",
       size: "sm",
-      onClick: () => remindStore(wo),
-      disabled: !q.storePhone
+      onClick: () => remindStore(wo)
     }, "תזכורת לחנות בוואטסאפ"), tab === "approved" && React.createElement(Button, {
       variant: "success",
       size: "sm",
@@ -10199,10 +10285,7 @@ const ModularDecodePage = ({ workOrders, setWorkOrders, installers, currentUser,
         modular: true,
         modularDecode: { items, cost, partial, warnings: ((plans[w.id] || {}).options || []).flatMap(o => o.warnings || []), calc: ((plans[w.id] || {}).options || []).filter(o => o.rows).map(o => ({ label: o.label, rows: o.rows.map(r => r.side + ": " + r.text) })), at: new Date().toISOString(), by: currentUser && currentUser.name || "מנהל" },
         modularDraft: null,
-        glassReady: true,
-        glassReadyDate: today,
-        glassReadyMatched: false,
-        status: "pending",
+        measurementConfirmed: true,
         activityLog: [...(x.activityLog || []), logEntry("modular_done")]
       } : x));
       setDrafts(prev => {
@@ -10211,12 +10294,7 @@ const ModularDecodePage = ({ workOrders, setWorkOrders, installers, currentUser,
         return n;
       });
       setOpenId(null);
-      const inst = w.installerId && installers.find(i => i.id === w.installerId);
-      if (inst && inst.phone) {
-        const msg = `שלום ${inst.name},\n\nהמקלחון מוכן להזמנה:\n\nלקוח: ${w.customerName}\nמוצר: ${w.product}\nכתובת: ${w.address || "—"}\n\nיש להיכנס למערכת ולקבוע תאריך התקנה:\nhttps://bariline.github.io/bariline-crm/`;
-        const clean = inst.phone.replace(/[-\s]/g, "");
-        window.open(`https://wa.me/${clean.startsWith("0") ? "972" + clean.slice(1) : clean}?text=${encodeURIComponent(msg)}`, "_blank");
-      }
+      // the job now waits in "ממתין לזכוכית" (tab מודולרי); the installer is told when the admin presses "מוכן"
     } catch (e) {
       console.error("modular finish", e);
       alert("הורדת המלאי נכשלה — בדקו חיבור ונסו שוב");
@@ -10364,7 +10442,7 @@ const ModularDecodePage = ({ workOrders, setWorkOrders, installers, currentUser,
       jobHeader(w),
       h("div", { style: { fontSize: 12, marginTop: 8 } }, dec.items.map((l, i) => h("div", { key: i }, `• ${l.name}${l.finish ? " · " + l.finish : ""} × ${fmtQty(l.qty)}`, l.unitCost != null ? h("span", { style: { color: colors.textMuted } }, ` (${fmtILS(l.unitCost)} ליח׳)`) : h("span", { style: { color: colors.warning } }, " (אין מחיר)")))),
       h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, marginTop: 8, flexWrap: "wrap" } },
-        h("div", { style: { fontSize: 12, color: colors.textLight } }, "עלות: ", h("b", null, fmtILS(dec.cost)), dec.partial ? " (חסרים מחירים)" : "", " · ", fmtD((dec.at || "").slice(0, 10)), dec.by ? " · " + dec.by : ""),
+        h("div", { style: { fontSize: 12, color: colors.textLight } }, h("span", { style: { fontWeight: 700, color: w.glassReady ? colors.success : colors.purple } }, w.glassReady ? "✓ מוכן · " : "בהכנה (ממתין לזכוכית) · "), "עלות: ", h("b", null, fmtILS(dec.cost)), dec.partial ? " (חסרים מחירים)" : "", " · ", fmtD((dec.at || "").slice(0, 10)), dec.by ? " · " + dec.by : ""),
         h("div", { style: { display: "flex", gap: 6 } },
           h(Button, { size: "sm", variant: "outline", onClick: () => printAssemblySheet(w, dec.items, dec.calc || [], dec.warnings || [], stockItems, true) }, "🖨 דף הרכבה"),
           canUndo && h(Button, { size: "sm", variant: "outline", disabled: busy, onClick: () => undo(w) }, "בטל פענוח"))));
@@ -10373,7 +10451,7 @@ const ModularDecodePage = ({ workOrders, setWorkOrders, installers, currentUser,
   return h("div", { style: { display: "flex", flexDirection: "column", gap: 16 } },
     h("div", null,
       h("h2", { style: { margin: 0, fontSize: isMobile ? 20 : 24 } }, "פענוח מודולרי"),
-      h("div", { style: { fontSize: 13, color: colors.textMuted, marginTop: 4 } }, "דגמים שנבנים מפריטים סטנדרטיים מהמלאי לפי מידות הלקוח. אחרי אישור המדידה בוחרים כאן את הפריטים (אפשר חצי יחידה), ובסיום הם יורדים מהמלאי והמתקין מקבל הודעה לתאם התקנה.")),
+      h("div", { style: { fontSize: 13, color: colors.textMuted, marginTop: 4 } }, "דגמים שנבנים מפריטים סטנדרטיים מהמלאי לפי מידות הלקוח. אחרי אישור המדידה בוחרים כאן את הפריטים (אפשר חצי יחידה), ובסיום הם יורדים מהמלאי והעבודה עוברת ל״ממתין לזכוכית״ (לשונית מודולרי). כשהמקלחון מוכן לוחצים שם ״מוכן״ — והמתקין רואה את העבודה ומקבל הודעה.")),
     h(Card, { style: { padding: isMobile ? 14 : 18 } },
       h("div", { style: { fontWeight: 700, fontSize: 14, marginBottom: 8 } }, "דגמים מודולריים"),
       h("div", { style: { fontSize: 12, color: colors.textMuted, marginBottom: 8 } }, "עבודה בהתאמה אישית שהמוצר שלה (או שורה בתעודת המשלוח) מכיל אחד מהשמות האלה תגיע לכאן במקום ל\"ממתין לזכוכית\"."),
@@ -14118,7 +14196,7 @@ function App() {
           });
           clean.photos = p;
         }
-        ["measurementPhoto", "orderPdfData", "signedWarrantyData"].forEach(f => {
+        ["measurementPhoto", "orderPdfData", "pdfData", "signedWarrantyData"].forEach(f => {
           if (typeof clean[f] === "string" && clean[f].length > 10000) clean[f] = true;
         });
         return clean;
@@ -14346,7 +14424,7 @@ function App() {
     // Verify by reading back from server
     if (allOk) {
       try {
-        const verify = await db.collection(COLLECTIONS.workOrders).get({
+        const verify = await db.collection(COLLECTIONS.workOrders).limit(1).get({
           source: "server"
         });
         console.log("Server verification: workOrders has", verify.size, "docs");
@@ -14537,6 +14615,11 @@ function App() {
   // Initial load on mount
   useEffect(() => {
     refreshFromFirestore(true);
+  }, [refreshFromFirestore]);
+  // The first screen may come from the copy saved on this phone — refresh as soon as the server answers
+  useEffect(() => {
+    woLive.onServer = () => refreshFromFirestore(false);
+    return () => { woLive.onServer = null; };
   }, [refreshFromFirestore]);
 
   // ─── Auto-refresh every 30 minutes (without logout) ────
@@ -15044,7 +15127,7 @@ function App() {
   }, navItems.map(item => {
     const openSCCount = item.key === "service" ? serviceCalls.filter(sc => sc.status !== "completed").length : 0;
     const preProductionCount = item.key === "pre_production" ? workOrders.filter(isPreProdJob).length : 0;
-    const waitingGlassCount = item.key === "waiting_glass" ? workOrders.filter(w => w.productType === "custom" && w.status !== "completed" && w.measured && w.measurementConfirmed && !w.glassReady && !(isAdmin && isModularJob(w))).length : 0;
+    const waitingGlassCount = item.key === "waiting_glass" ? workOrders.filter(w => isWaitGlassJob(w, isAdmin ? "admin" : "")).length : 0;
     const modularCount = item.key === "modular" ? workOrders.filter(isWaitingModular).length : 0;
     const badgeCount = openSCCount || preProductionCount || waitingGlassCount || modularCount;
     const isHighlighted = badgeCount > 0 && page !== item.key;
