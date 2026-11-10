@@ -829,6 +829,13 @@ body.bl-wiz{overflow:hidden}
 #blW .mrow input,#blW .mrow select{font-size:20px;font-weight:700;text-align:center;padding:8px 4px;border-radius:10px;border:1.5px solid var(--line);background:#fff;width:100%}
 #blW .mrow select{font-size:17px}
 #blW .mrow .calc{font-size:20px;font-weight:800;text-align:center;color:#2c7a3f}
+#blW .sidecl{display:grid;grid-template-columns:1fr auto;gap:2px 10px;text-align:right;width:100%;font:inherit;cursor:pointer;border:1.5px dashed var(--line);background:#fff}
+#blW .sidecl.ok{border:1.5px solid #2c7a3f;background:#f3faf5}
+#blW .sidecl .s{grid-column:1;font-size:13px;color:var(--muted)}
+#blW .sidecl .edit{grid-row:1/3;grid-column:2;align-self:center;color:var(--accent);font-weight:700;font-size:14px}
+#blW .sideopen{border:2px solid #e0a800;box-shadow:0 0 0 3px #fff3c4}
+#blW .sidedone{width:100%;border:0;border-radius:12px;background:#2c7a3f;color:#fff;font-size:16px;font-weight:800;padding:12px;margin-top:4px}
+#blW .sidedone:disabled{opacity:.4}
 #blW .ex{grid-column:1/-1;display:flex;flex-wrap:wrap;gap:10px;align-items:center;font-size:14px;border-top:1px dashed var(--line);padding-top:6px}
 #blW .ex input[type=number]{width:90px;font-size:16px;padding:6px}
 #blW .ex label{flex-direction:row;align-items:center;gap:6px;font-size:14px;color:var(--ink)}
@@ -877,7 +884,7 @@ body.bl-advanced #blBackWiz{display:block}
   const TN = { fixed: 'קבוע', door: 'דלת', harm: 'הרמוניקה' };
   const body = document.body;
   const W = { step: 'cust', sysFixed: false, jobModel: null, itemModels: [], pre: {}, reasons: {}, reasonText: {}, userNote: '', hl: null,
-    totals: new WeakMap(), dev: new WeakMap(), devAns: new WeakMap(), devSet: new WeakSet(), autoHinge: new WeakSet(), exOpen: new WeakSet(), showDev: false, showOpts: false, strokes: [], pad: null };
+    totals: new WeakMap(), dev: new WeakMap(), devAns: new WeakMap(), sideOpen: new WeakMap(), devSet: new WeakSet(), autoHinge: new WeakSet(), exOpen: new WeakSet(), showDev: false, showOpts: false, strokes: [], pad: null };
   const STEPS = [['cust', 'פרטי הלקוח'], ['sys', 'סוג המקלחון'], ['shape', 'צורת המקלחון'], ['meas', 'מדידה'], ['glass', 'זכוכית ופרזול'], ['photo', 'צילום והערות'], ['sign', 'חתימה ושליחה']];
   // the system screen is skipped only for the first shower when the whole job is one system; an extra shower always chooses
   const steps = () => STEPS.filter(s => s[0] !== 'sys' || !(W.sysFixed && CUR.i === 0));
@@ -1017,6 +1024,7 @@ body.bl-advanced #blBackWiz{display:block}
     });
     return out;
   }
+  const sideDone = sd => sd.els.length > 0 && sd.els.every(e => Number(e.w) > 0) && !(() => { const c = calcLeft(sd); return c.p.total && c.left <= 0; })() && !(isProfile() && sd.els.some(e => e.type === 'door' && Number(e.w) < 35));
   const profileDoorTooSmall = () => isProfile() && O.sides.some(sd => sd.els.some(e => e.type === 'door' && Number(e.w) > 0 && Number(e.w) < 35));
   const allMeasured = () => O.sides.length && O.sides.every(sd => sd.els.length && sd.els.every(e => Number(e.w) > 0)) && !O.sides.some(sd => { const c = calcLeft(sd); return c.p.total && c.left <= 0; });
 
@@ -1123,13 +1131,23 @@ body.bl-advanced #blBackWiz{display:block}
     seedTotals(); applyCalc();
     const N = O.sides.length; const bath = isBathOrder(O);
     const fl = fixedList();
+    // a corner is measured one side at a time: the open side is coloured on the drawing; "סיים צלע" moves to the next one
+    if (N >= 2 && !W.sideOpen.has(O)) { const f = O.sides.findIndex(sd => !sideDone(sd)); W.sideOpen.set(O, f < 0 ? -1 : f); }
+    const openSi = N >= 2 ? W.sideOpen.get(O) : 0;
+    if (N >= 2 && W.hl == null && openSi >= 0) { let b0 = 0; for (let i = 0; i < openSi; i++) b0 += O.sides[i].els.length; W.hl = O.sides[openSi].els.map((_, k) => b0 + k); }
     let flat = 0; let rows = '';
     O.sides.forEach((sd, si) => {
       const base = flat; flat += sd.els.length;
       const p = plan(sd);
       const name = N === 1 ? (bath ? 'מהקיר עד הקצה הפתוח' : 'חזית – מקיר לקיר') : (si === 0 ? 'צלע שמאל – מהקיר עד הפינה' : 'צלע ימין – מהקיר עד הפינה');
       const all = sd.els.map((_, k) => base + k).join(',');
-      let h = `<div class="wside"><div class="sname">${name}</div>`;
+      if (N >= 2 && si !== openSi) {
+        const ok = sideDone(sd);
+        const tot = r1(sd.els.reduce((a, e) => a + (Number(e.w) || 0), 0));
+        rows += `<button type="button" class="wside sidecl${ok ? ' ok' : ''}" data-openside="${si}"><span class="sname">${ok ? '✓ ' : ''}${name.split(' – ')[0]}</span><span class="s">${ok ? fmt(tot) + ' ס"מ · ' + sd.els.map(e => TN[e.type] + ' ' + fmt(e.w)).join(' + ') : 'עוד לא נמדדה – לחצו כדי למדוד'}</span><span class="edit">${ok ? 'ערוך' : 'מדוד ›'}</span></button>`;
+        return;
+      }
+      let h = `<div class="wside${N >= 2 ? ' sideopen' : ''}"><div class="sname">${N >= 2 ? '✏️ ' : ''}${name}</div>`;
       if (p.total) h += `<div class="mrow" data-hl="${all}"><div><b>אורך הצלע כולו</b><span class="s">${N === 1 ? 'מקיר לקיר, למטה' : 'מהקיר עד הפינה, למטה'}</span></div><input data-tot="${si}" inputmode="decimal" value="${W.totals.get(sd) || ''}" placeholder="ס״מ"></div>`;
       const order = (N >= 2 && si === N - 1) ? sd.els.map((e, k) => [e, k]).reverse() : sd.els.map((e, k) => [e, k]);
       order.forEach(([e, k], pos) => {
@@ -1163,8 +1181,10 @@ body.bl-advanced #blBackWiz{display:block}
             hingeRow = `<div class="ex"><span>${alaska ? 'פתיחה:' : 'הציר:'}</span><div class="seg" style="flex:1"><button type="button" data-hinge="${si}:${k}:left" class="${cur === 'left' ? 'on' : ''}">◀ ציר משמאל (${nm(L)})${alaska ? (L.kind === 'wall' ? ' · מהאמצע' : ' · מהצד') : ''}</button><button type="button" data-hinge="${si}:${k}:right" class="${cur === 'right' ? 'on' : ''}">ציר מימין (${nm(R)}) ▶${alaska ? (R.kind === 'wall' ? ' · מהאמצע' : ' · מהצד') : ''}</button></div></div>`;
           }
         }
-        h += `<div class="mrow" data-hl="${base + k}"><div><b>${TN[e.type]}${extras}</b><span class="s">${sub}</span></div>${ctl}${hingeRow}<button class="exl" type="button" data-exo="${si}:${k}">${W.exOpen.has(e) ? 'סגור תוספות' : (e.type === 'fixed' ? '+ תוספות (מדרגה / ידית מגבת)' : '+ תוספות (ידית מגבת' + (isProfile() ? '' : ' / ציר נוסף') + ')')}</button>${ex}</div>`;
+        const exBtn = isProfile() ? '' : `<button class="exl" type="button" data-exo="${si}:${k}">${W.exOpen.has(e) ? 'סגור תוספות' : (e.type === 'fixed' ? '+ תוספות (מדרגה / ידית מגבת)' : '+ תוספות (ידית מגבת / ציר נוסף)')}</button>${ex}`;   // modular: no towel bar / step / extra hinge
+        h += `<div class="mrow" data-hl="${base + k}"><div><b>${TN[e.type]}${extras}</b><span class="s">${sub}</span></div>${ctl}${hingeRow}${exBtn}</div>`;
       });
+      if (N >= 2) h += `<button type="button" class="sidedone" data-sidedone="${si}" ${sideDone(sd) ? '' : 'disabled'}>✓ סיים צלע${O.sides.some((x, i) => i !== si && !sideDone(x)) ? ' – לצלע הבאה' : ''}</button>`;
       rows += h + '</div>';
     });
     const d = W.dev.get(O) || {};
@@ -1265,6 +1285,7 @@ body.bl-advanced #blBackWiz{display:block}
     applyCalc();
     B('bw_draw').innerHTML = drawHL();
     document.querySelectorAll('#blWB [data-calc]').forEach(c => { const e = elAt(c.dataset.calc); c.textContent = e && Number(e.w) ? fmt(e.w) : '—'; });
+    document.querySelectorAll('#blWB [data-sidedone]').forEach(b => { const sd = O.sides[Number(b.dataset.sidedone)]; b.disabled = !sideDone(sd); });
     B('bw_warns').innerHTML = (!isProfile() && allMeasured() && !W.devAns.get(O) ? '<div class="wmsg warn">⚠ לפני "הבא": לסמן אם הקירות ישרים או שיש סטייה</div>' : '') + measWarns().map(([c, t]) => `<div class="wmsg ${c}">${c === 'ok' ? '✓' : '⚠'} ${esc(t)}</div>`).join('');
     foot();
   }
@@ -1303,6 +1324,13 @@ body.bl-advanced #blBackWiz{display:block}
         render();
       });
       on('bw_reason2', 'input', e => { setReason(e.target.value); foot(); });
+      document.querySelectorAll('#blWB [data-openside]').forEach(b => b.onclick = () => { W.sideOpen.set(O, Number(b.dataset.openside)); W.hl = null; render(); });
+      document.querySelectorAll('#blWB [data-sidedone]').forEach(b => b.onclick = () => {
+        const si = Number(b.dataset.sidedone);
+        const nx = O.sides.findIndex((sd, i) => i !== si && !sideDone(sd));
+        W.sideOpen.set(O, nx); W.hl = null; render();
+        const t = document.querySelector('#blWB .sideopen') || B('bw_warns'); if (t) t.scrollIntoView({ block: 'center' });
+      });
       document.querySelectorAll('#blWB [data-devq]').forEach(b => b.onclick = () => { W.devAns.set(O, b.dataset.devq); if (b.dataset.devq === 'straight') { W.dev.delete(O); applyDev(); } devNote(); render(); });
       on('bw_mirror', 'click', () => { mirror(); render(); });
       updMeas();

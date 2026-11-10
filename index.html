@@ -150,7 +150,7 @@ const FIREBASE_CONFIG = {
   appId: "1:1042161550667:web:61a07d439a34c4705b94ce"
 };
 
-const APP_VERSION = "2026-11-11-pickup-barcode";
+const APP_VERSION = "2026-11-11-preprod-quotes";
 // ─── Password hashing — passwords are never stored in plain text ────
 async function hashPassword(accountId, pw) {
   const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode("bariline-v1|" + String(accountId) + "|" + String(pw || "")));
@@ -472,6 +472,8 @@ function isMixedJob(w) {
   const cm = w && currentMeasurement(w);
   return !!(cm && Array.isArray(cm.systems) && cm.systems.includes("profile") && cm.systems.includes("clean"));
 }
+// "measured" came from Madaf (a customer order / quote exists) but no measurement was saved in the CRM
+const measuredOutside = w => !!(w && w.measured && !currentMeasurement(w) && !w.modularNoMeasure);
 const drawingItemIsModular = it => textIsModular(it && it.snapshot && it.snapshot.model || "");
 // Modular flow: measured → (office makes the quote in Madaf) → delivery note → פענוח (אשר מדידה + פענוח there)
 const hasMadafDelivery = w => !!(w && (w.madafDeliveryNo || w.madafDelivery && w.madafDelivery.no));
@@ -482,6 +484,8 @@ const isWaitingModular = w => w.productType === "custom" && w.status !== "comple
 const isWaitGlassJob = (w, role) => w.productType === "custom" && w.status !== "completed" && w.measured && w.measurementConfirmed && !w.glassReady && (role !== "admin" || !isModularJob(w) || !!w.modularDecode);
 function isPreProdJob(w) {
   if (!(w.productType === "custom" && w.status !== "completed" && w.measured && !w.measurementConfirmed)) return false;
+  // a job whose quote waits for the store lives only in "הצעות מחיר ממתינות"
+  if (w.quoteStatus === "pending") return false;
   return !(isModularJob(w) && (w.madafQuote || hasMadafDelivery(w) || w.modularReady));
 }
 // Layouts of the modular models = the layouts of their צירים נקיים twins (same as the measurement page)
@@ -2748,34 +2752,39 @@ const Avatar = ({
     flexShrink: 0
   }
 }, initials);
+// page = true: a full-screen page on a phone (installer job page) with a "› חזרה" button
 const Modal = ({
   title,
   onClose,
   children,
-  width = 520
-}) => /*#__PURE__*/React.createElement("div", {
+  width = 520,
+  page = false
+}) => { const full = page && window.innerWidth < 760; return /*#__PURE__*/React.createElement("div", {
   style: {
     position: "fixed",
     inset: 0,
-    background: "rgba(0,0,0,0.4)",
+    background: full ? "#f6f8f8" : "rgba(0,0,0,0.4)",
     display: "flex",
-    alignItems: "center",
+    alignItems: full ? "stretch" : "center",
     justifyContent: "center",
     zIndex: 1000,
-    padding: 16
+    padding: full ? 0 : 16,
+    paddingTop: full ? "env(safe-area-inset-top, 0px)" : 16
   }
 }, /*#__PURE__*/React.createElement("div", {
   style: {
-    background: colors.card,
-    borderRadius: 16,
+    background: full ? "#f6f8f8" : colors.card,
+    borderRadius: full ? 0 : 16,
     width: "100%",
-    maxWidth: width,
-    maxHeight: "90vh",
+    maxWidth: full ? "100%" : width,
+    maxHeight: full ? "100%" : "90vh",
     overflow: "auto",
-    boxShadow: "0 20px 60px rgba(0,0,0,0.2)",
+    boxShadow: full ? "none" : "0 20px 60px rgba(0,0,0,0.2)",
     direction: "rtl"
   }
-}, /*#__PURE__*/React.createElement("div", {
+}, full ? /*#__PURE__*/React.createElement("div", {
+  style: { position: "sticky", top: 0, zIndex: 2, display: "flex", alignItems: "center", gap: 10, padding: "12px 14px", background: "#12303a", color: "#fff" }
+}, /*#__PURE__*/React.createElement("button", { onClick: onClose, style: { background: "rgba(255,255,255,.14)", border: 0, color: "#fff", borderRadius: 10, padding: "7px 12px", fontWeight: 700, fontSize: 14, cursor: "pointer", fontFamily: "inherit" } }, "› חזרה"), /*#__PURE__*/React.createElement("b", { style: { fontSize: 15 } }, title)) : /*#__PURE__*/React.createElement("div", {
   style: {
     display: "flex",
     justifyContent: "space-between",
@@ -2801,9 +2810,9 @@ const Modal = ({
   }
 }, Icons.x)), /*#__PURE__*/React.createElement("div", {
   style: {
-    padding: 20
+    padding: full ? 14 : 20
   }
-}, children)));
+}, children))); };
 const FormField = ({
   label,
   children
@@ -4935,6 +4944,44 @@ const BarcodeScan = ({ onCode, onClose }) => {
         h("input", { autoFocus: true, value: typed, onChange: e => setTyped(e.target.value), placeholder: "מכשיר סריקה / הקלדה", style: { flex: 1, padding: 10, borderRadius: 10, border: `1.5px solid ${colors.border}`, fontFamily: "monospace", direction: "ltr" } }),
         h("button", { type: "submit", style: pkBtn("#0f766e") }, "בדוק"))));
 };
+const keeperPhoneOf = accounts => pickupSettings().warehousePhone || ((accounts || []).find(a => a.role === "warehouse" && a.phone) || {}).phone || "";
+async function timePropose(p, by, byName, day, slot, phone) {
+  const now = new Date().toISOString();
+  await getDb().collection("pickups").doc(p.id).set({ proposal: { by, byName, day, slot, at: now }, timeOk: false, log: (p.log || []).concat({ at: now, by: byName, what: "הצעת שעה: " + day + " " + slot }) }, { merge: true });
+  waOpen(phone, `⏰ ${byName} מציע שעה אחרת לאיסוף מהמחסן:
+${dayLabel(day)} ${slot}
+(במקום ${dayLabel(p.day)} ${p.slot})
+
+לאשר או להציע שעה אחרת: מערכת Bariline ← איסוף.`);
+}
+async function timeAccept(p, byName, phone) {
+  const now = new Date().toISOString(); const q = p.proposal;
+  const day = q ? q.day : p.day, slot = q ? q.slot : p.slot;
+  await getDb().collection("pickups").doc(p.id).set({ timeOk: true, proposal: null, day, slot, timeOkBy: byName, timeOkAt: now, log: (p.log || []).concat({ at: now, by: byName, what: "שעה אושרה: " + day + " " + slot }) }, { merge: true });
+  waOpen(phone, `✅ ${byName} אישר את שעת האיסוף מהמחסן: ${dayLabel(day)} ${slot}`);
+}
+// side = "wh" (warehouse) | "inst" (installer)
+const PickupTime = ({ p, side, myName, phoneTo }) => {
+  const h = React.createElement;
+  const [pick, setPick] = useState(false);
+  const st = pickupSettings();
+  const q = p.proposal;
+  const go = f => f().catch(pkErr);
+  const when = (d, s) => h("b", null, dayLabel(d), " ", h("bdi", { dir: "ltr" }, s));
+  const box = (bg, fg, ...kids) => h("div", { style: { background: bg, border: `1.5px solid ${fg}`, color: colors.text, borderRadius: 12, padding: 10, marginTop: 10, fontSize: 14 } }, ...kids);
+  const chooser = pick && h("div", { style: { display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 6, marginTop: 8 } }, workDays(5).flatMap(d => st.slots.map(s => {
+    const full = slotTaken(d, s, p.id) >= Number(st.capacity || 99);
+    return h("button", { key: d + s, disabled: full, onClick: () => { setPick(false); go(() => timePropose(p, side, myName, d, s, phoneTo)); }, style: { ...pkChip(false), opacity: full ? 0.45 : 1 } }, dayLabel(d), " ", h("bdi", { dir: "ltr" }, s), full ? " · מלא" : "");
+  })));
+  const offerBtn = h("button", { onClick: () => setPick(!pick), style: pkBtn("#fff", colors.text) }, pick ? "סגור" : "הצע שעה אחרת");
+  if (p.timeOk) return box("#e3f4e8", "#15803d", "✓ שעת האיסוף סגורה: ", when(p.day, p.slot));
+  if (q && q.by !== side) return box("#fff7e6", "#b45309", "⏰ ", h("b", null, q.byName || (q.by === "wh" ? "המחסן" : "המתקין")), " מציע: ", when(q.day, q.slot),
+    h("div", { style: { display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" } }, h("button", { onClick: () => go(() => timeAccept(p, myName, phoneTo)), style: pkBtn("#0f766e") }, "✓ מאשר"), offerBtn), chooser);
+  if (q) return box("#edf1f4", "#64748b", "הצעת: ", when(q.day, q.slot), " – מחכה לתשובה", h("div", { style: { marginTop: 8 } }, offerBtn), chooser);
+  if (side === "wh") return box("#fff7e6", "#b45309", "המתקין ביקש: ", when(p.day, p.slot),
+    h("div", { style: { display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" } }, h("button", { onClick: () => go(() => timeAccept(p, myName, phoneTo)), style: pkBtn("#0f766e") }, "✓ השעה מתאימה"), offerBtn), chooser);
+  return box("#edf1f4", "#64748b", "מחכה שהמחסן יאשר את השעה: ", when(p.day, p.slot), h("div", { style: { marginTop: 8 } }, offerBtn), chooser);
+};
 const PK_STEPS = [["sent", "נשלח"], ["approved", "מנהל אישר"], ["ready", "מוכן במחסן"], ["collected", "נאסף"]];
 const PickupFlow = ({ status }) => {
   const h = React.createElement;
@@ -4948,7 +4995,7 @@ const pkBtn = (bg, fg) => ({ border: bg === "#fff" ? `1px solid ${colors.border}
 const pkChip = (on) => ({ border: `1.5px solid ${on ? "#0f766e" : colors.border}`, background: on ? "#dff3f0" : "#fff", color: colors.text, borderRadius: 10, padding: "8px 6px", fontSize: 13, fontWeight: on ? 800 : 500, cursor: "pointer", fontFamily: "inherit" });
 
 // ─── installer: "איסוף" ────
-const PickupInstallerPage = ({ workOrders, installerId, currentUser }) => {
+const PickupInstallerPage = ({ workOrders, installerId, currentUser, accounts }) => {
   const h = React.createElement;
   const pk = usePickups();
   const st = pickupSettings();
@@ -4990,9 +5037,10 @@ const PickupInstallerPage = ({ workOrders, installerId, currentUser }) => {
   };
   const cancel = async p => { if (!confirm("לבטל את בקשת האיסוף?")) return; try { await pickupWrite(p, { status: "cancelled" }, "released"); } catch (e) { pkErr(e); } };
   const reqCard = p => h("div", { key: p.id, style: pkBox },
-    h("div", { style: { display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap" } }, h("b", null, "📦 בקשת איסוף · ", dayLabel(p.day), " ", h("bdi", { dir: "ltr" }, p.slot)), p.timeChanged ? h("span", { style: { color: colors.warning, fontWeight: 700, fontSize: 13 } }, "⏰ המחסן שינה שעה") : null),
+    h("div", { style: { display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap" } }, h("b", null, "📦 בקשת איסוף · ", dayLabel(p.day), " ", h("bdi", { dir: "ltr" }, p.slot)), null),
     h(PickupFlow, { status: p.status }),
-    h("div", { style: { fontSize: 14, fontWeight: 700, margin: "4px 0" } }, { sent: "ממתין לאישור המנהל", approved: "אושר – המחסן מכין", ready: "מוכן לאיסוף!" }[p.status]),
+    h("div", { style: { fontSize: 14, fontWeight: 700, margin: "4px 0" } }, { sent: "ממתין לאישור המנהל", approved: p.timeOk ? "אושר – השעה סגורה, המחסן מכין" : "אושר – לסגור שעה עם המחסן", ready: "מוכן לאיסוף!" }[p.status]),
+    p.status === "approved" && h(PickupTime, { p, side: "inst", myName: currentUser && currentUser.name || "המתקין", phoneTo: keeperPhoneOf(accounts) }),
     p.jobIds.map(id => { const w = workOrders.find(x => x.id === id); return h("div", { key: id, style: { fontSize: 13.5, padding: "3px 0" } }, "• ", w ? w.customerName + " – " + (w.product || "") : id); }),
     (p.missing || []).length ? h("div", { style: { color: colors.danger, fontSize: 13, marginTop: 4 } }, "חסר במחסן: ", p.missing.map(id => (workOrders.find(x => x.id === id) || {}).customerName || id).join(", ")) : null,
     p.status === "ready" && p.barcode && h("div", { style: { marginTop: 10 } }, h("div", { style: { fontSize: 13, color: colors.textLight, marginBottom: 6 } }, "כשמגיעים – המחסנאי סורק את הברקוד (חד-פעמי, לאיסוף הזה בלבד):"), h(PickupQR, { text: p.barcode })),
@@ -5062,7 +5110,7 @@ const PickupAdminPage = ({ workOrders, installers, accounts, currentUser }) => {
       if (withoutBad && mine.length) await releaseLocks(p, mine);
       const now = new Date().toISOString();
       await pickupWrite(p, { status: "approved", jobIds: keep, removed: withoutBad ? bad : [], approvedBy: who, approvedAt: now, log: (p.log || []).concat({ at: now, by: who, what: "אושר" + (withoutBad && bad.length ? " (הוסרו " + bad.length + ")" : "") }) }, "approved", keep);
-      waOpen(keeperPhone, `איסוף מאושר מהמחסן 📦\nמתקין: ${p.installerName}\nמתי: ${dayLabel(p.day)} ${p.slot}\n${pickupLine({ ...p, jobIds: keep }, workOrders)}\n\nלסמן "מוכן" במערכת Bariline.`);
+      waOpen(keeperPhone, `איסוף מאושר מהמחסן 📦\nמתקין: ${p.installerName}\nמתי: ${dayLabel(p.day)} ${p.slot}\n${pickupLine({ ...p, jobIds: keep }, workOrders)}\n\nלאשר את השעה (או להציע אחרת) ולסמן "מוכן" במערכת Bariline.`);
     } catch (e) { pkErr(e); }
   };
   const reject = async p => {
@@ -5139,7 +5187,6 @@ const WarehousePage = ({ workOrders, installers, currentUser, view }) => {
   const pk = usePickups();
   const st = pickupSettings();
   const [ok, setOk] = useState({});        // pickupId -> [jobIds ready]
-  const [move, setMove] = useState(null);  // pickupId being moved to another time
   const who = currentUser && currentUser.name || "מחסן";
   const instPhone = id => ((installers || []).find(i => i.id === id) || {}).phone || "";
   const list = pk.pickups.filter(p => ["approved", "ready"].includes(p.status)).sort((a, b) => (a.day + a.slot).localeCompare(b.day + b.slot));
@@ -5157,9 +5204,6 @@ const WarehousePage = ({ workOrders, installers, currentUser, view }) => {
       await pickupWrite(p, { status: "ready", jobIds: keep, missing, readyBy: who, readyAt: now, barcode: newPickupBarcode(p.id), barcodeUsed: false, log: (p.log || []).concat({ at: now, by: who, what: "מוכן במחסן" + (missing.length ? " (חסר " + missing.length + ")" : "") }) }, "ready", keep);
       waOpen(instPhone(p.installerId), `האיסוף שלך מוכן במחסן ✅\n${dayLabel(p.day)} ${p.slot}\n${pickupLine({ ...p, jobIds: keep }, workOrders)}${missing.length ? "\n\nחסר כרגע: " + missing.map(id => (workOrders.find(x => x.id === id) || {}).customerName || id).join(", ") : ""}\n\nהברקוד לאיסוף נמצא במערכת Bariline ← איסוף מהמחסן.`);
     } catch (e) { pkErr(e); }
-  };
-  const moveTo = async (p, day, slot) => {
-    try { await getDb().collection("pickups").doc(p.id).set({ day, slot, timeChanged: true, log: (p.log || []).concat({ at: new Date().toISOString(), by: who, what: "שעה שונתה ל-" + day + " " + slot }) }, { merge: true }); setMove(null); waOpen(instPhone(p.installerId), `המחסן מבקש להגיע לאיסוף ב-${dayLabel(day)} ${slot} במקום ${dayLabel(p.day)} ${p.slot}. מתאים? אם לא – להתקשר.`); } catch (e) { pkErr(e); }
   };
   const [scanFor, setScanFor] = useState(null); // null | "any" | pickupId
   const [scanMsg, setScanMsg] = useState(null);
@@ -5183,7 +5227,7 @@ const WarehousePage = ({ workOrders, installers, currentUser, view }) => {
   };
   const title = { pickups: "📦 איסופים", returns: "↩ החזרות", log: "✓ נמסר" }[view] || "📦 איסופים";
   return h("div", null,
-    h("h1", { style: { fontSize: isMobile ? 20 : 24, fontWeight: 800, margin: "0 0 12px" } }, title),
+    null,
     pk.error && h("div", { style: { ...pkBox, color: colors.danger } }, "⚠ ", pk.error),
     scanFor && h(BarcodeScan, { onCode: onScan, onClose: () => setScanFor(null) }),
     scanMsg && h("div", { onClick: () => setScanMsg(null), style: { ...pkBox, cursor: "pointer", fontWeight: 700, fontSize: 15, background: scanMsg[0] === "ok" ? "#e3f4e8" : "#fde7e4", color: scanMsg[0] === "ok" ? "#15803d" : "#b42318", border: "2px solid currentColor" } }, scanMsg[1], h("div", { style: { fontSize: 12, fontWeight: 400, marginTop: 4, color: colors.textLight } }, "לחיצה לסגירה")),
@@ -5195,12 +5239,12 @@ const WarehousePage = ({ workOrders, installers, currentUser, view }) => {
         p.jobIds.map(id => { const w = workOrders.find(x => x.id === id); return h("label", { key: id, style: { display: "flex", gap: 10, alignItems: "center", padding: "8px 0", borderTop: `1px solid ${colors.border}` } },
           h("input", { type: "checkbox", disabled: p.status !== "approved", checked: okOf(p).includes(id), onChange: e => setOk({ ...ok, [p.id]: e.target.checked ? okOf(p).concat(id) : okOf(p).filter(x => x !== id) }), style: { width: 22, height: 22, accentColor: "#0f766e" } }),
           h("div", null, h("div", { style: { fontWeight: 700 } }, w ? w.product || "—" : id), h("div", { style: { fontSize: 12.5, color: colors.textLight } }, w ? w.customerName + " · " + ((placeOf(w.address) || {}).town || w.address || "") : ""))); }),
-        p.status === "approved" ? h("div", { style: { display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" } },
-          h("button", { onClick: () => ready(p), style: pkBtn("#0f766e") }, okOf(p).length < p.jobIds.length ? "✓ מוכן (" + okOf(p).length + "/" + p.jobIds.length + ") + השעה מתאימה" : "✓ הכל מוכן + השעה מתאימה"),
-          h("button", { onClick: () => setMove(move === p.id ? null : p.id), style: pkBtn("#fff", colors.text) }, "הצע שעה אחרת")) :
+        p.status === "approved" ? h("div", null,
+          h(PickupTime, { p, side: "wh", myName: who, phoneTo: instPhone(p.installerId) }),
+          h("button", { onClick: () => ready(p), disabled: !p.timeOk, title: p.timeOk ? "" : "קודם לסגור שעה עם המתקין", style: { ...pkBtn("#0f766e"), width: "100%", marginTop: 10, padding: 13, opacity: p.timeOk ? 1 : 0.45 } }, okOf(p).length < p.jobIds.length ? "✓ מוכן (" + okOf(p).length + "/" + p.jobIds.length + ")" : "✓ הכל מוכן לאיסוף")) :
           h("div", { style: { marginTop: 10 } }, h("div", { style: { fontSize: 13, color: colors.textLight, marginBottom: 6 } }, "כשהמתקין מגיע – סורקים את הברקוד שבטלפון שלו:"),
             h("button", { onClick: () => setScanFor(p.id), style: { ...pkBtn("#0f766e"), width: "100%", padding: 14, fontSize: 16 } }, "📷 סרוק ברקוד ומסור")),
-        move === p.id && h("div", { style: { marginTop: 10, display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 6 } }, workDays(4).flatMap(d => st.slots.map(s => h("button", { key: d + s, onClick: () => moveTo(p, d, s), style: pkChip(false) }, dayLabel(d), " ", h("bdi", { dir: "ltr" }, s))))))) :
+        null)) :
         h("div", { style: { ...pkBox, color: colors.textMuted } }, "אין איסופים מאושרים כרגע")),
     view === "returns" && h("div", null,
       h("div", { style: { fontSize: 13, color: colors.textLight, marginBottom: 8 } }, "עבודות שבוטלו אחרי שהמקלחון נאסף. כשהמקלחון חוזר – מסמנים, והמנהל מאשר."),
@@ -6309,7 +6353,7 @@ const WorkOrdersPage = ({
   };
   return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     style: {
-      display: "flex",
+      display: role === "installer" ? "none" : "flex",
       justifyContent: "space-between",
       alignItems: "center",
       marginBottom: 16,
@@ -6843,7 +6887,10 @@ const WorkOrdersPage = ({
       }
     }, isStandard ? "סטנדרט" : isMixedJob(wo) ? "מודולרי + צירים נקיים" : isModularJob(wo) ? "מודולרי" : "צירים נקיים"), /*#__PURE__*/React.createElement(StatusBadge, {
       status: wo.status
-    })), role === "installer" && React.createElement("div", { style: { margin: "4px 0" } }, React.createElement(NearTag, { w: wo, workOrders, installerId })), /*#__PURE__*/React.createElement("div", {
+    }), measuredOutside(wo) && wo.status !== "completed" && /*#__PURE__*/React.createElement("span", {
+      title: "במדף יש הזמנת לקוח / הצעת מחיר, אבל המדידה לא נשמרה במערכת",
+      style: { padding: "1px 7px", borderRadius: 10, fontSize: 10, fontWeight: 700, background: "#f1f5f9", color: "#475569", border: "1px dashed #94a3b8" }
+    }, "📝 נמדד מחוץ למערכת")), role === "installer" && React.createElement("div", { style: { margin: "4px 0" } }, React.createElement(NearTag, { w: wo, workOrders, installerId })), /*#__PURE__*/React.createElement("div", {
       style: {
         fontSize: 12,
         color: colors.textLight,
@@ -7114,9 +7161,10 @@ const WorkOrdersPage = ({
     const selDaysLeft = getDaysRemaining(selected.createdDate || selected.scheduledDate);
     const selCustomStep = !selIsStandard ? getCustomWorkflowStep(selected) : null;
     return /*#__PURE__*/React.createElement(Modal, {
- title: `הזמנת עבודה ${selected.id}`,
+ title: role === "installer" ? selected.customerName || "עבודה" : `הזמנת עבודה ${selected.id}`,
       onClose: () => setSelected(null),
-      width: 620
+      width: 620,
+      page: role === "installer"
     }, role === "installer" && installerNextStep(selected), /*#__PURE__*/React.createElement("div", {
       style: {
         display: "flex",
@@ -14626,6 +14674,7 @@ function App() {
   const [page, setPage] = useState("dashboard");
   const isMobile = useIsMobile();
   const [sidebarOpen, setSidebarOpen] = useState(!isMobile);
+  useEffect(() => { if (currentUser && currentUser.role !== "admin") setSidebarOpen(false); }, [currentUser]);
   const [workOrders, setWorkOrdersState] = useState([]);
   const [installers, setInstallersState] = useState([]);
   const [accounts, setAccountsState] = useState([]);
@@ -15527,6 +15576,15 @@ function App() {
     icon: Icons.glass
   }];
   const navItems = isAdmin ? adminNav : isWarehouse ? warehouseNav : installerNav;
+  // installers + warehouse keeper: phone app frame (dark top bar + bottom tabs), like the approved mockup. The admin keeps the side menu.
+  const shell = !isAdmin;
+  const SHORT = { today: "היום שלי", orders: "העבודות שלי", service: "שירות", pickup: "איסוף", waiting_glass: "בהכנה", wh_pickups: "איסופים", wh_returns: "החזרות", wh_log: "נמסר" };
+  const navBadge = key => key === "service" ? serviceCalls.filter(sc => sc.status !== "completed" && (!sc.assignedInstallerId || sc.assignedInstallerId === currentUser.installerId)).length
+    : key === "waiting_glass" ? workOrders.filter(w => isWaitGlassJob(w, "") && w.installerId === currentUser.installerId).length
+    : key === "orders" ? workOrders.filter(w => w.installerId === currentUser.installerId && w.status === "pending" && isActionableJob(w)).length
+    : key === "wh_pickups" ? PK.pickups.filter(p => p.status === "approved").length
+    : key === "wh_returns" ? workOrders.filter(w => ["cancelled", "rejected"].includes(w.status) && (PK.locks[String(w.id)] || {}).status === "collected").length
+    : key === "pickup" ? PK.pickups.filter(p => p.installerId === currentUser.installerId && (p.status === "ready" || p.proposal && p.proposal.by === "wh")).length : 0;
   const renderPage = () => {
     if (isWarehouse && !["wh_pickups", "wh_returns", "wh_log"].includes(page)) {
       setPage("wh_pickups");
@@ -15574,7 +15632,7 @@ function App() {
           installerId: currentUser.installerId
         });
       case "pickup":
-        return React.createElement(PickupInstallerPage, { workOrders, installerId: currentUser.installerId, currentUser });
+        return React.createElement(PickupInstallerPage, { workOrders, installerId: currentUser.installerId, currentUser, accounts });
       case "pickups":
         return React.createElement(PickupAdminPage, { workOrders, installers, accounts, currentUser });
       case "wh_pickups":
@@ -15696,7 +15754,7 @@ function App() {
       direction: "rtl",
       paddingTop: "env(safe-area-inset-top, 0px)"
     }
-  }, isMobile && sidebarOpen && /*#__PURE__*/React.createElement("div", {
+  }, (isMobile || shell) && sidebarOpen && /*#__PURE__*/React.createElement("div", {
     onClick: () => setSidebarOpen(false),
     style: {
       position: "fixed",
@@ -15713,7 +15771,7 @@ function App() {
       transition: "all 0.2s",
       overflow: "hidden",
       flexShrink: 0,
-      ...(isMobile ? {
+      ...(isMobile || shell ? {
         position: "fixed",
         top: "env(safe-area-inset-top, 0px)",
         right: 0,
@@ -15784,7 +15842,7 @@ function App() {
       key: item.key,
       onClick: () => {
         setPage(item.key);
-        if (isMobile) setSidebarOpen(false);
+        if (isMobile || shell) setSidebarOpen(false);
       },
       style: {
         display: "flex",
@@ -15963,8 +16021,8 @@ function App() {
       alignItems: "center",
       justifyContent: "space-between",
       padding: isMobile ? "10px 12px" : "10px 20px",
-      background: colors.card,
-      borderBottom: `1px solid ${colors.border}`,
+      background: shell ? "#12303a" : colors.card,
+      borderBottom: shell ? "none" : `1px solid ${colors.border}`,
       flexShrink: 0
     }
   }, /*#__PURE__*/React.createElement("div", {
@@ -15979,17 +16037,19 @@ function App() {
       background: "none",
       border: "none",
       cursor: "pointer",
-      color: colors.textLight,
+      color: shell ? "rgba(255,255,255,.8)" : colors.textLight,
       padding: 4,
       display: "flex"
-    }
-  }, Icons.menu), /*#__PURE__*/React.createElement("h1", {
+    },
+    title: "תפריט"
+  }, Icons.menu), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("h1", {
     style: {
       margin: 0,
-      fontSize: 16,
-      fontWeight: 700
+      fontSize: shell ? 20 : 16,
+      fontWeight: shell ? 800 : 700,
+      color: shell ? "#fff" : undefined
     }
-  }, navItems.find(n => n.key === page)?.label)), /*#__PURE__*/React.createElement("div", {
+  }, navItems.find(n => n.key === page)?.label), shell && /*#__PURE__*/React.createElement("div", { style: { fontSize: 12.5, color: "rgba(255,255,255,.7)" } }, currentUser.name, " · ", isWarehouse ? "מחסן" : "מתקין"))), /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       alignItems: "center",
@@ -16030,7 +16090,7 @@ function App() {
     points: "17 21 17 13 7 13 7 21"
   }), /*#__PURE__*/React.createElement("polyline", {
     points: "7 3 7 8 15 8"
-  })), saveStatus === "saving" ? "שומר..." : "שמור"), /*#__PURE__*/React.createElement("button", {
+  })), shell ? null : saveStatus === "saving" ? "שומר..." : "שמור"), /*#__PURE__*/React.createElement("button", {
     onClick: () => {
       refreshFromFirestore(false);
     },
@@ -16064,7 +16124,7 @@ function App() {
     points: "1 20 1 14 7 14"
   }), /*#__PURE__*/React.createElement("path", {
     d: "M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"
-  })), "\u05E8\u05E2\u05E0\u05DF"), /*#__PURE__*/React.createElement("span", {
+  })), shell ? null : "\u05E8\u05E2\u05E0\u05DF"), /*#__PURE__*/React.createElement("span", {
     title: dbStatus === "online" ? "מסד נתונים מחובר" : dbStatus === "offline" ? "מצב לא מקוון" : "טוען...",
     style: {
       width: 8,
@@ -16103,7 +16163,7 @@ function App() {
       color: "#92400e",
       padding: 2
     }
-  }, Icons.x)), /*#__PURE__*/React.createElement("span", {
+  }, Icons.x)), /*#__PURE__*/React.createElement("span", { hidden: shell,
     style: {
       padding: "4px 10px",
       borderRadius: 6,
@@ -16180,7 +16240,8 @@ function App() {
     style: {
       flex: 1,
       overflow: "auto",
-      padding: isMobile ? 10 : 20,
+      padding: shell ? "14px max(14px, calc((100% - 560px) / 2))" : isMobile ? 10 : 20,
+      background: shell ? "#f6f8f8" : undefined,
       overflowX: "hidden"
     }
   }, isAdmin && (() => {
@@ -16240,7 +16301,18 @@ function App() {
         color: "white"
       }
     }, Icons.reports, " \u05D2\u05D9\u05D1\u05D5\u05D9 \u05E2\u05DB\u05E9\u05D9\u05D5"));
-  })(), renderPage())), showIosInstall && /*#__PURE__*/React.createElement(Modal, {
+  })(), renderPage()), shell && /*#__PURE__*/React.createElement("nav", {
+    "aria-label": "תפריט",
+    style: { display: "grid", gridTemplateColumns: `repeat(${navItems.length}, 1fr)`, borderTop: `1px solid ${colors.border}`, background: "#fff", paddingBottom: "env(safe-area-inset-bottom, 0px)", flexShrink: 0 }
+  }, navItems.map(item => {
+    const n = navBadge(item.key);
+    const on = page === item.key;
+    return /*#__PURE__*/React.createElement("button", {
+      key: item.key,
+      onClick: () => setPage(item.key),
+      style: { border: 0, background: "none", fontFamily: "inherit", color: on ? "#0f766e" : colors.textLight, fontWeight: on ? 800 : 500, padding: "8px 2px 9px", display: "flex", flexDirection: "column", alignItems: "center", gap: 2, fontSize: 12, cursor: "pointer", position: "relative" }
+    }, /*#__PURE__*/React.createElement("span", { style: { display: "flex", transform: "scale(1.2)", marginBottom: 2 } }, item.icon), SHORT[item.key] || item.label, n > 0 && /*#__PURE__*/React.createElement("span", { style: { position: "absolute", top: 3, left: "calc(50% - 24px)", background: item.key === "pickup" ? "#0f766e" : "#b45309", color: "#fff", borderRadius: 99, fontSize: 11, fontWeight: 800, minWidth: 18, height: 18, display: "grid", placeItems: "center", padding: "0 4px" } }, n));
+  }))), showIosInstall && /*#__PURE__*/React.createElement(Modal, {
     title: "\u05E9\u05DE\u05D9\u05E8\u05D4 \u05D1\u05DE\u05E1\u05DA \u05D4\u05D1\u05D9\u05EA",
     onClose: () => setShowIosInstall(false),
     width: 340
