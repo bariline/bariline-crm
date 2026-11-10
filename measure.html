@@ -783,5 +783,612 @@ body.bl-view #blSysView{display:block}
   };
 })();
 </script>
+<!-- ===== Bariline add-on: simple step-by-step measuring for installers ("מצב פשוט"). It fills the SAME data (M / O) through the SAME functions as the full form,
+     so the link, the drawings, the הדמיה and the message to the CRM stay exactly as before. The full form stays as "מצב מתקדם". Original code above is unchanged. ===== -->
+<style>
+#blW{position:fixed;inset:0;z-index:40;background:#f3f5f6;display:none;flex-direction:column;font-family:"Heebo",Arial,sans-serif}
+body.bl-wiz #blW{display:flex}
+body.bl-wiz{overflow:hidden}
+#blW .wtop{background:#15212b;color:#fff;padding:10px 14px;display:flex;flex-direction:column;gap:8px}
+#blW .wrow{display:flex;justify-content:space-between;align-items:center;gap:8px}
+#blW .wtitle{font-size:18px;font-weight:800}
+#blW .wsub{font-size:12.5px;opacity:.8}
+#blW .wadv{background:transparent;color:#fff;border:1px solid rgba(255,255,255,.55);padding:6px 10px;font-size:13px;border-radius:8px}
+#blW .wbar{display:flex;gap:4px}
+#blW .wbar span{flex:1;height:5px;border-radius:3px;background:rgba(255,255,255,.25)}
+#blW .wbar span.on{background:#fff}
+#blW .wbody{flex:1;overflow:auto;padding:16px 14px 28px;display:flex;flex-direction:column;gap:14px;-webkit-overflow-scrolling:touch}
+#blW .wbody>*{flex-shrink:0}
+#blW .wfoot{padding:10px 14px calc(12px + env(safe-area-inset-bottom,0px));border-top:1px solid var(--line);background:#fff;display:flex;gap:10px}
+#blW .q{font-size:22px;font-weight:800;margin:0}
+#blW .wh{color:var(--muted);font-size:14px;margin:-6px 0 0;line-height:1.5}
+#blW .fld{display:flex;flex-direction:column;gap:5px;font-size:14px;font-weight:600;color:var(--muted)}
+#blW .fld input,#blW .fld select,#blW textarea{font-size:17px;padding:12px;border-radius:12px;border:1.5px solid var(--line);background:#fff}
+#blW .from{font-size:12px;color:#2c7a3f;font-weight:700}
+#blW .bnext,#blW .bsend{flex:1;color:#fff;border:0;font-size:18px;font-weight:700;padding:15px;border-radius:14px;background:var(--accent)}
+#blW .bsend{background:#1fa855}
+#blW .bnext:disabled,#blW .bsend:disabled{opacity:.45}
+#blW .bback{background:#e8ecef;border:0;font-size:17px;padding:15px 18px;border-radius:14px}
+#blW .big2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+#blW .tiles{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+#blW .choice{border:2px solid var(--line);background:#fff;border-radius:14px;padding:8px 6px 10px;display:flex;flex-direction:column;align-items:center;gap:3px;font-size:15px;font-weight:700;text-align:center;color:var(--ink);position:relative}
+#blW .choice small{font-weight:400;color:var(--muted);font-size:12px}
+#blW .choice.sel{border-color:var(--accent);background:var(--accent-soft)}
+#blW .choice svg{width:100%;height:auto;display:block}
+#blW .choice .badge{position:absolute;top:6px;right:6px;background:#2c7a3f;color:#fff;font-size:11px;font-weight:700;border-radius:99px;padding:2px 7px}
+#blW .grp{font-size:14px;font-weight:800;color:var(--muted);margin-top:4px}
+#blW .link{background:none;border:0;color:var(--accent);font-weight:700;text-decoration:underline;padding:4px 0;font-size:15px;align-self:flex-start}
+#blW .draw{background:#fff;border:1px solid var(--line);border-radius:12px;overflow:hidden}
+#blW .draw svg{width:100%;height:auto;display:block}
+#blW .wside{background:#fff;border:1px solid var(--line);border-radius:14px;padding:10px;display:flex;flex-direction:column;gap:8px}
+#blW .sname{font-weight:800;font-size:15px}
+#blW .mrow{display:grid;grid-template-columns:1fr 112px;gap:8px;align-items:center;padding:8px;border-radius:12px;background:#f3f5f6;border:2px solid transparent}
+#blW .mrow.act{border-color:#e0a800;background:#fff8e1}
+#blW .mrow b{font-size:15px;display:block}
+#blW .mrow .s{font-size:12px;color:var(--muted)}
+#blW .mrow input,#blW .mrow select{font-size:20px;font-weight:700;text-align:center;padding:8px 4px;border-radius:10px;border:1.5px solid var(--line);background:#fff;width:100%}
+#blW .mrow select{font-size:17px}
+#blW .mrow .calc{font-size:20px;font-weight:800;text-align:center;color:#2c7a3f}
+#blW .ex{grid-column:1/-1;display:flex;flex-wrap:wrap;gap:10px;align-items:center;font-size:14px;border-top:1px dashed var(--line);padding-top:6px}
+#blW .ex input[type=number]{width:90px;font-size:16px;padding:6px}
+#blW .ex label{flex-direction:row;align-items:center;gap:6px;font-size:14px;color:var(--ink)}
+#blW .ex input[type=checkbox]{width:auto;transform:scale(1.3)}
+#blW .exl{grid-column:1/-1;font-size:13px;color:var(--accent);background:none;border:0;padding:0;text-align:right;text-decoration:underline}
+#blW .wmsg{border-radius:12px;padding:10px 12px;font-size:14px;line-height:1.5}
+#blW .wmsg.warn{background:var(--warn-soft);color:var(--warn)}
+#blW .wmsg.ok{background:#e3f4e8;color:#2c7a3f;font-weight:600}
+#blW .wmsg.err{background:#fde8e6;color:#c0392b;font-weight:700}
+#blW .auto{display:flex;justify-content:space-between;gap:8px;background:#fff;border:1px solid var(--line);border-radius:12px;padding:10px 12px;font-size:15px}
+#blW .sum{border:1px solid var(--line);border-radius:14px;overflow:hidden;background:#fff}
+#blW .sum div{display:flex;justify-content:space-between;gap:10px;padding:10px 12px;border-bottom:1px solid var(--line);font-size:15px}
+#blW .sum div:last-child{border-bottom:0}
+#blW .sum span{color:var(--muted);white-space:nowrap}
+#blW .sum b{text-align:left}
+#blW .cam{border:2px dashed #9aa5ab;border-radius:16px;padding:26px 12px;display:flex;flex-direction:column;align-items:center;gap:6px;text-align:center;color:var(--muted);background:#fff;cursor:pointer;font-size:15px}
+#blW .cam b{color:var(--ink);font-size:18px}
+#blW .cam img{max-width:100%;max-height:220px;border-radius:10px}
+#blW .sigw{border:1.5px solid var(--line);border-radius:14px;background:#fff;position:relative}
+#blW .sigw canvas{display:block;width:100%;height:170px;touch-action:none}
+#blW .sigw .ph{position:absolute;inset:0;display:grid;place-items:center;color:var(--muted);pointer-events:none}
+#blW .terms{max-height:150px}
+#blW .chk div{display:flex;gap:8px;align-items:center;font-size:15px;margin-top:5px}
+#blW .dot{width:22px;height:22px;border-radius:50%;display:grid;place-items:center;font-size:13px;color:#fff;flex:none}
+#blW .dot.y{background:#2c7a3f}#blW .dot.n{background:#b4540a}
+#blW .seg{display:flex;gap:6px}
+#blW .seg button{flex:1;padding:9px 6px;font-size:14px}
+#blW .seg button.on{background:var(--accent);color:#fff;border-color:var(--accent);font-weight:700}
+#blW .chips{display:flex;flex-wrap:wrap;gap:6px}
+#blW .chips button{border-radius:99px;font-size:14px;padding:7px 12px}
+#blW .chips button.on{background:var(--accent);color:#fff;border-color:var(--accent)}
+#blW .devrow{display:grid;grid-template-columns:auto 90px 1fr;gap:8px;align-items:center;font-size:14px}
+#blW .devrow input{font-size:17px;padding:8px;text-align:center}
+#blBackWiz{position:fixed;bottom:14px;left:14px;z-index:30;background:#15212b;color:#fff;border:0;border-radius:99px;padding:12px 16px;font-weight:700;box-shadow:0 4px 14px rgba(0,0,0,.25);display:none}
+body.bl-advanced #blBackWiz{display:block}
+</style>
+<div id="blW"><div class="wtop"><div class="wrow"><div><div class="wtitle" id="blWT">מדידה</div><div class="wsub" id="blWS"></div></div><div class="row"><button class="wadv" id="blWNew" hidden>מדידה חדשה</button><button class="wadv" id="blWAdv">מצב מתקדם</button></div></div><div class="wbar" id="blWBar"></div></div><div class="wbody" id="blWB"></div><div class="wfoot" id="blWF"></div></div>
+<button id="blBackWiz" type="button">↩ חזרה למדידה הפשוטה</button>
+<script>
+(function(){
+  const P = new URLSearchParams(location.hash.slice(1));
+  const EMBED = !!P.get('embed'), VIEW = P.get('view') === '1', FROM_LINK = !!P.get('m');
+  if (VIEW || !EMBED) return;                         // only inside the CRM (not in view mode, not from a direct link)
+  let init = {}; try { init = JSON.parse(P.get('init') || '{}'); } catch (e) {}
+  const TWINS = window.BL_PROFILE_TWINS || {};
+  const TN = { fixed: 'קבוע', door: 'דלת', harm: 'הרמוניקה' };
+  const body = document.body;
+  const W = { step: 'cust', sysFixed: false, jobModel: null, itemModels: [], pre: {}, reasons: {}, reasonText: {}, userNote: '', hl: null,
+    totals: new WeakMap(), dev: new WeakMap(), devAns: new WeakMap(), devSet: new WeakSet(), autoHinge: new WeakSet(), exOpen: new WeakSet(), showDev: false, showOpts: false, strokes: [], pad: null };
+  const STEPS = [['cust', 'פרטי הלקוח'], ['sys', 'סוג המקלחון'], ['shape', 'צורת המקלחון'], ['meas', 'מדידה'], ['glass', 'זכוכית ופרזול'], ['photo', 'צילום והערות'], ['sign', 'חתימה ושליחה']];
+  // the system screen is skipped only for the first shower when the whole job is one system; an extra shower always chooses
+  const steps = () => STEPS.filter(s => s[0] !== 'sys' || !(W.sysFixed && CUR.i === 0));
+  const isProfile = () => O.system === 'profile';
+  // modular profile colours and the glass each one comes with (stock)
+  const PROFILE_COMBOS = { 'ניקל מבריק': ['שקופה', 'גרניט', 'פסים'], 'שחור': ['שקופה'] };
+  const profileComboOk = () => !!(PROFILE_COMBOS[O.finish] && PROFILE_COMBOS[O.finish].includes(O.glass));
+  const B = id => document.getElementById(id);
+
+  /* ---------- reading the job's product text (pre-fill) ---------- */
+  const longestIn = (text, list) => { const t = normModel(text); if (!t) return null; return [...list].sort((a, b) => b.length - a.length).find(n => t.includes(normModel(n))) || null; };
+  const FINISH_WORDS = [['ניקל מבריק', 'ניקל מבריק'], ['ניקל מוברש', 'ניקל מוברש'], ['זהב מוברש', 'זהב מוברש'], ['גרפיט', 'גרפיט'], ['כרום', 'כרום'], ['שחור', 'שחור'], ['ניקל', 'ניקל מבריק'], ['זהב', 'זהב מוברש']];
+  // every model written in the job, in order (a home can have a modular shower and a צירים נקיים one)
+  function allModelsIn(text) {
+    const t = normModel(text); if (!t) return [];
+    const names = Object.keys(TWINS).map(n => [n, 'profile']).concat(Object.keys(DEFAULT_TEMPLATES).map(n => [n, 'clean'])).sort((a, b) => b[0].length - a[0].length);
+    const used = [], found = [];
+    names.forEach(([n, sys]) => { const nn = normModel(n); let from = 0, i;
+      while ((i = t.indexOf(nn, from)) >= 0) { const end = i + nn.length; if (!used.some(([a, b]) => i < b && end > a)) { used.push([i, end]); found.push({ name: n, sys, at: i }); } from = end; } });
+    found.sort((a, b) => a.at - b.at);
+    const seen = new Set();
+    return found.filter(f => !seen.has(f.name) && seen.add(f.name));
+  }
+  const jobModelFor = i => W.itemModels[i] ? W.itemModels[i].name : null;
+  function readProduct(text) {
+    const out = {};
+    if (!text) return out;
+    out.modular = longestIn(text, Object.keys(TWINS));
+    out.clean = longestIn(text, Object.keys(DEFAULT_TEMPLATES));
+    const g = longestIn(text, GLASS_TYPES) || (/שקוף/.test(text) ? 'שקופה' : null);
+    if (g) out.glass = g;
+    const f = FINISH_WORDS.find(([w]) => text.includes(w)); if (f) out.finish = f[1];
+    const th = text.match(/(?:^|[^\d.])(6|8|10)\s*מ["״'׳]?מ/); if (th) out.thick = th[1];
+    out.models = allModelsIn(text);
+    if (/פרופיל|מודולרי/.test(text)) out.sys = 'profile'; else if (/צירים נקיים|לפי מידה/.test(text)) out.sys = 'clean';
+    return out;
+  }
+  function setSystem(sys) {
+    if (O.system === sys) return;
+    const was = O.system;
+    const b = document.querySelector(`#blSys [data-s="${sys}"]`);
+    if (b) b.click(); else O.system = sys;
+    // a model of the other system does not fit any more
+    const mod = window.blModularOf ? window.blModularOf(O.model) : null;
+    if ((sys === 'profile' && O.model && !mod) || (sys === 'clean' && mod)) { O.model = ''; O.sides = []; B('f_model').value = ''; refresh(); }
+    if (sys === 'clean' && was === 'profile') { if (Number(O.height) === 185) O.height = 190; if (String(O.thick) === '6') O.thick = W.pre.thick || '8'; }
+  }
+  function prefillOrder(o, pr) {
+    if (pr.glass) o.glass = pr.glass;
+    if (pr.finish) o.finish = pr.finish;
+    if (pr.thick && o.system !== 'profile') o.thick = pr.thick;
+  }
+
+  /* ---------- choosing a model = the same as typing it in the full form ---------- */
+  function selectModel(name) {
+    if (normModel(O.model) === normModel(name) && O.sides.length) return;
+    O.sides = [];
+    const inp = B('f_model'); inp.value = name; inp.dispatchEvent(new Event('input'));
+    if (!O.sides.length) { const t = parseTemplate(DEFAULT_TEMPLATES[TWINS[name] || name]); if (t) applyTemplate(t); }
+  }
+  // mirror image: right ↔ left (the order of the pieces and the sides is reversed; explicit sides are swapped)
+  const SWP = v => v === 'left' ? 'right' : v === 'right' ? 'left' : v;
+  function mirror() {
+    O.sides = O.sides.slice().reverse();
+    O.sides.forEach(sd => { sd.els.reverse(); sd.els.forEach(el => { el.hinge = SWP(el.hinge); el.devSide = SWP(el.devSide); el.stepSide = SWP(el.stepSide); }); });
+    const d = W.dev.get(O); if (d) W.dev.set(O, { left: d.right, right: d.left });
+    refresh();
+  }
+
+  /* ---------- measuring: whole side + fixed panels, the rest is calculated ---------- */
+  function plan(sd) {
+    if (sd.els.length <= 1) return { total: false, calc: [] };
+    const mv = sd.els.filter(e => e.type !== 'fixed');
+    if (!mv.length) return { total: false, calc: [] };
+    if (mv.length > 1 && mv.every(e => e.type === mv[0].type)) return { total: true, calc: mv, equal: true };
+    return { total: true, calc: [mv[mv.length - 1]] };
+  }
+  const profileTotalSide = sd => sd.els.some(e => e.type === 'fixed') && sd.els.some(e => e.type === 'door') && sd.els.every(e => e.type === 'fixed' || e.type === 'door');
+  function seedTotals() {
+    O.sides.forEach(sd => { const p = plan(sd); if (!p.total || W.totals.has(sd)) return;
+      const t = Number(sd.total) || (sd.els.every(e => Number(e.w) > 0) ? r1(sd.els.reduce((a, e) => a + Number(e.w), 0)) : 0);
+      if (t) W.totals.set(sd, t); });
+  }
+  function calcLeft(sd) { const p = plan(sd); const tot = Number(W.totals.get(sd)) || 0; const typed = sd.els.filter(e => !p.calc.includes(e)).reduce((a, e) => a + (Number(e.w) || 0), 0); return { p, tot, left: tot - typed }; }
+  function applyCalc() {
+    O.sides.forEach(sd => {
+      const { p, tot, left } = calcLeft(sd);
+      if (!p.total) return;
+      const each = tot ? r1(left / p.calc.length) : 0;
+      p.calc.forEach(e => { e.w = each > 0 ? each : 0; });
+      if (isProfile() && profileTotalSide(sd)) sd.total = tot || null;
+    });
+    // צירים נקיים: a door over 90 cm needs a 3rd hinge
+    O.sides.forEach(sd => sd.els.forEach(e => {
+      if (e.type !== 'door') return;
+      if (!isProfile() && Number(e.w) > 90) { if (!e.extraHinge) { e.extraHinge = true; W.autoHinge.add(e); } }
+      else if (W.autoHinge.has(e)) { e.extraHinge = false; W.autoHinge.delete(e); }
+    }));
+    applyDev();
+  }
+  // wall not straight: the installer types only the difference (e.g. 0.4); top width = bottom ± difference
+  const wallEl = side => { if (!O.sides.length) return null; if (side === 'left') return O.sides[0].els[0] || null; if (isBathOrder(O)) return null; const ls = O.sides[O.sides.length - 1]; return ls.els[ls.els.length - 1] || null; };
+  function applyDev() {
+    const d = W.dev.get(O) || {};
+    ['left', 'right'].forEach(side => {
+      const el = wallEl(side); if (!el) return;
+      const e = d[side];
+      if (e && Number(e.v)) { el.wTop = r1(Number(el.w) + (e.wider ? 1 : -1) * Math.abs(Number(e.v))); el.devSide = side; W.devSet.add(el); }
+      else if (W.devSet.has(el) && el.devSide === side) { el.wTop = null; el.devSide = 'auto'; W.devSet.delete(el); }
+    });
+  }
+  // fixed panel sizes for modular (same lists as the measuring-rules add-on)
+  const STOCK_FIXED = (Array.isArray(init.fixedSizes) && init.fixedSizes.length ? init.fixedSizes : [34, 39, 46, 49, 60]).map(Number).sort((a, b) => a - b);
+  function fixedList() {
+    if (!isProfile()) return null;
+    const m = window.blModularOf ? window.blModularOf(O.model) : null;
+    if (m === 'קולורדו') return null;
+    if (m === 'אלסקה פתיחה מהאמצע') return { sizes: [50, 60, 70, 80, 90], extra: false };
+    return { sizes: STOCK_FIXED, extra: true };
+  }
+  function measWarns() {
+    const out = []; const clean = !isProfile();
+    O.sides.forEach(sd => {
+      const { p, tot, left } = calcLeft(sd);
+      if (p.total && tot && left <= 0) out.push(['err', `אורך הצלע (${fmt(tot)}) קטן מהקבוע – לבדוק את המידות`]);
+      sd.els.forEach(e => {
+        const w = Number(e.w); if (!w) return;
+        if (e.type === 'door') {
+          if (w < 35 && !clean) out.push(['err', `דלת ${fmt(w)} ס"מ – בפרופיל דלת מינימום 35 ס"מ. אי אפשר להמשיך.`]);
+          else if (w < 35) out.push(['warn', `דלת ${fmt(w)} ס"מ – צרה מהרגיל (בדרך כלל 35–90). לבדוק שוב?`]);
+          else if (clean && w > 100) out.push(['err', `דלת ${fmt(w)} ס"מ – בצירים נקיים דלת עד 100 ס"מ. לבדוק שוב / לדבר עם המשרד.`]);
+          else if (clean && w > 90) out.push(['ok', `דלת ${fmt(w)} ס"מ – מעל 90, נוסף ציר שלישי (חובה).`]);
+          else if (!clean && w > 90) out.push(['warn', `דלת ${fmt(w)} ס"מ – רחבה מהרגיל (בדרך כלל 35–90). לבדוק שוב?`]);
+        } else if (e.type === 'fixed' && (w < 15 || w > 150)) out.push(['warn', `קבוע ${fmt(w)} ס"מ – לא רגיל. לבדוק שוב?`]);
+        else if (e.type === 'harm' && (w < 50 || w > 130)) out.push(['warn', `הרמוניקה ${fmt(w)} ס"מ – לא רגיל. לבדוק שוב?`]);
+      });
+    });
+    return out;
+  }
+  const profileDoorTooSmall = () => isProfile() && O.sides.some(sd => sd.els.some(e => e.type === 'door' && Number(e.w) > 0 && Number(e.w) < 35));
+  const allMeasured = () => O.sides.length && O.sides.every(sd => sd.els.length && sd.els.every(e => Number(e.w) > 0)) && !O.sides.some(sd => { const c = calcLeft(sd); return c.p.total && c.left <= 0; });
+
+  /* ---------- drawings ---------- */
+  function drawHL() {
+    if (!O.sides.some(sd => sd.els.length)) return '';
+    // until every width is typed, draw the shape with stand-in widths and without numbers (so the picture is never empty)
+    const full = O.sides.every(sd => sd.els.every(e => Number(e.w) > 0));
+    let svg;
+    try {
+      if (full) svg = sketch();
+      else {
+        const tmp = JSON.parse(JSON.stringify(O));
+        tmp.sides.forEach(sd => sd.els.forEach(e => { if (!(Number(e.w) > 0)) e.w = e.type === 'fixed' ? 40 : e.type === 'door' ? 60 : 70; e.wTop = null; e.dev = null; }));
+        const Wd = 1000, Hd = 760;
+        svg = svgWrap(Wd, Hd, `<rect width="${Wd}" height="${Hd}" fill="#fff"/>` + stripDims(sketchFor(tmp, { x: 40, y: 30, w: 920, h: 700 }, 1.5)));
+      }
+    } catch (e) { return '<div class="hint" style="padding:12px">' + esc(e.message) + '</div>'; }
+    const idx = W.hl || [];
+    if (idx.length) { let k = -1; svg = svg.replace(/<polygon points="[^"]*" fill="#(e9f1f4|f7fbfc)"/g, m => { k++; return idx.includes(k) ? m.replace(/fill="#[0-9a-f]{6}"/, 'fill="#ffd966"') : m; }); }
+    return svg;
+  }
+  const KEEP = new Set(['קבוע', 'דלת', 'הרמוניקה', 'קצה פתוח']);
+  const TILE = {};
+  function tileSVG(model, sys) {
+    const key = sys + '|' + model; if (TILE[key]) return TILE[key];
+    const sides = parseTemplate(DEFAULT_TEMPLATES[sys === 'profile' ? TWINS[model] : model]);
+    if (!sides) return '';
+    const o = Object.assign(newOrder(), { model, system: sys, height: MODEL_KIND[model] ? 80 : 110 });   // tiles only: lower glass so the shape reads well in a small picture
+    o.sides = sides.map(sd => ({ els: sd.map(t => newEl(t, t === 'fixed' ? 40 : t === 'door' ? 60 : 70)) }));
+    if (o.sides.length >= 2) o.sides[o.sides.length - 1].els.reverse();
+    if (/^אלסקה/.test(model)) o.sides.forEach(sd => sd.els.forEach((el, k) => { if (el.type !== 'door') return; const leftFixed = sd.els[k - 1] && sd.els[k - 1].type === 'fixed';
+      el.hinge = model.includes('מהאמצע') ? (leftFixed ? 'right' : 'left') : (leftFixed ? 'left' : 'right'); }));
+    let s = '';
+    try { s = stripDims(sketchFor(o, { x: 4, y: 4, w: 392, h: 300 }, 1.5)); } catch (e) { return ''; }
+    return (TILE[key] = svgWrap(400, 308, '<rect width="400" height="308" fill="#fff"/>' + s));
+  }
+  function stripDims(s) {
+    return s.replace(/<rect [^>]*fill="#fff" stroke="#111" stroke-width="1"\/>/g, '')
+         .replace(/<line [^>]*marker-start="url\(#ah\)"[^>]*\/>/g, '')
+         .replace(/<line [^>]*stroke="#888" stroke-width="1"\/>/g, '')
+         .replace(/<text[^>]*>([^<]*)<\/text>/g, (m, t) => KEEP.has(t) ? m : '');
+  }
+  const shapeText = (model, sys) => String(DEFAULT_TEMPLATES[sys === 'profile' ? TWINS[model] : model] || '').replace(/\s*\+\s*/g, ' + ').replace(/\s*\/\s*/g, '  |  ');
+
+  /* ---------- wall check note (צירים נקיים): straight or the deviation, per shower ---------- */
+  function devNote() {
+    Object.keys(W.reasons).filter(k => k.startsWith('dev:')).forEach(k => delete W.reasons[k]);
+    M.items.forEach((it, i) => it.opts.forEach((o, j) => {
+      if (o.system === 'profile') return;
+      const ans = W.devAns.get(o); if (!ans) return;
+      const lb = (M.items.length > 1 || it.opts.length > 1) ? optLabel(i, j) + ': ' : '';
+      if (ans === 'straight') W.reasons['dev:' + i + ':' + j] = lb + 'נבדק במדידה – הקירות ישרים (אין סטייה)';
+      else { const d = W.dev.get(o) || {}; const parts = ['left', 'right'].filter(s => d[s] && Number(d[s].v)).map(s => `קיר ${s === 'left' ? 'שמאל' : 'ימין'}: למעלה ${d[s].wider === false ? 'צר' : 'רחב'} יותר ב-${fmt(Math.abs(Number(d[s].v)))} ס"מ`);
+        W.reasons['dev:' + i + ':' + j] = lb + '⚠ סטייה בקיר – ' + (parts.join(' · ') || 'לא נרשם כמה'); }
+    }));
+    syncNote();
+  }
+  /* ---------- notes: the installer's notes + the reason for a model change ---------- */
+  function syncNote() { M.note = [W.userNote].concat(Object.values(W.reasons)).filter(Boolean).join('\n'); B('f_note').value = M.note; }
+  const needsReason = () => CUR.j === 0 && jobModelFor(CUR.i) && O.model && normModel(O.model) !== normModel(jobModelFor(CUR.i));
+  function setReason(txt) {
+    const key = 'k' + CUR.i;
+    W.reasonText[key] = txt;
+    const lb = M.items.length > 1 ? optLabel(CUR.i, 0) + ': ' : '';
+    if (needsReason() && txt.trim()) W.reasons[key] = `${lb}שינוי דגם: בעבודה "${jobModelFor(CUR.i)}" – נמדד "${O.model}". סיבה: ${txt.trim()}`; else delete W.reasons[key];
+    syncNote();
+  }
+
+  /* ---------- screens ---------- */
+  const fld = (id, label, v, type, from) => `<label class="fld" for="${id}">${label}${from ? ' <span class="from">✓ מהעבודה</span>' : ''}<input id="${id}" type="${type || 'text'}" value="${esc(v || '')}"${type === 'tel' ? ' inputmode="tel"' : ''}></label>`;
+  const SCR = {};
+  SCR.cust = () => `<h2 class="q">${EMBED ? 'זה הלקוח הנכון?' : 'פרטי הלקוח'}</h2><p class="wh">${EMBED ? 'הפרטים הגיעו מהעבודה במערכת. רק לבדוק ולהמשיך.' : 'ממלאים את פרטי הלקוח.'}</p>
+    ${fld('bw_c', 'שם הלקוח *', M.customer, 'text', EMBED && init.customer)}${fld('bw_p', 'טלפון', M.customerPhone, 'tel', EMBED && init.phone)}${fld('bw_a', 'כתובת', M.address, 'text', EMBED && init.address)}
+    ${W.itemModels.length > 1 ? `<div class="wmsg warn"><b>בעבודה רשומים ${W.itemModels.length} מקלחונים:</b><br>${W.itemModels.map((m, k) => `${k + 1}. ${esc(m.name)} – ${m.sys === 'profile' ? 'פרופיל' : 'צירים נקיים'}`).join('<br>')}<br>מודדים כל אחד בנפרד. בסוף: "+ מקלחון נוסף".</div>` : ''}
+    ${EMBED ? `<div class="auto"><span>חנות · הזמנה</span><b>${esc(M.store || '—')} · ${esc(M.no || '—')}</b></div>` : fld('bw_s', 'חנות', M.store) + fld('bw_n', "מס' הזמנה", M.no)}`;
+  SCR.sys = () => {
+    const pic = (sys, model) => tileSVG(model, sys);
+    return `<h2 class="q">איזה מקלחון?</h2><p class="wh">פרופיל = דגם מודולרי מהמלאי. צירים נקיים = לפי מידה מהמפעל.</p>
+    <div class="big2"><button class="choice${O.system === 'profile' ? ' sel' : ''}" data-sys="profile">${pic('profile', 'אלסקה')}פרופיל<small>מודולרי · גובה 185</small></button>
+    <button class="choice${O.system === 'clean' ? ' sel' : ''}" data-sys="clean">${pic('clean', 'טנסי')}צירים נקיים<small>לפי מידה</small></button></div>`;
+  };
+  SCR.shape = () => {
+    const sys = isProfile() ? 'profile' : 'clean';
+    const names = sys === 'profile' ? Object.keys(TWINS) : Object.keys(DEFAULT_TEMPLATES);
+    const groups = [];
+    const add = (g, n) => { let x = groups.find(q => q[0] === g); if (!x) groups.push(x = [g, []]); x[1].push(n); };
+    names.forEach(n => { const t = parseTemplate(DEFAULT_TEMPLATES[sys === 'profile' ? TWINS[n] : n]); if (!t) return;
+      add(MODEL_KIND[n] ? 'אמבטיון' : t.length >= 2 ? 'פינתי (שני צדדים)' : 'בין שני קירות (חזית)', n); });
+    const order = ['בין שני קירות (חזית)', 'פינתי (שני צדדים)', 'אמבטיון'];
+    groups.sort((a, b) => order.indexOf(a[0]) - order.indexOf(b[0]));
+    const jmi = CUR.j === 0 ? jobModelFor(CUR.i) : null;
+    if (jmi && names.some(n => normModel(n) === normModel(jmi))) groups.unshift(['הדגם שרשום בעבודה', [names.find(n => normModel(n) === normModel(jmi))]]);
+    const it = M.items[CUR.i];
+    const multi = M.items.length > 1 || it.opts.length > 1;
+    const reason = needsReason();
+    return `<h2 class="q">איך נראה המקלחון?</h2><p class="wh">לוחצים על התמונה שדומה למקלחון של הלקוח (כפי שרואים אותו מבחוץ). צד הפוך? אפשר להפוך במסך הבא.</p>
+      ${multi ? `<label class="fld" for="bw_room">שם המקלחון / חדר<input id="bw_room" type="text" value="${esc(it.room || '')}" placeholder="חדר הורים / ילדים…"></label>` : ''}
+      ${reason ? `<div class="wmsg warn" id="bw_rbox"><b>בעבודה רשום ${esc(jobModelFor(CUR.i))}, ובחרת ${esc(O.model)}.</b><br>למה הדגם השתנה? (חובה – יופיע בהערות למשרד)<textarea id="bw_reason" style="margin-top:6px;width:100%" placeholder="למשל: הלקוח ביקש דלת במקום קבוע / אין מקום לקבוע">${esc(W.reasonText['k' + CUR.i] || '')}</textarea></div>` : ''}
+      ${groups.map(([g, list]) => `<div class="grp">${g}</div><div class="tiles">${list.map(n => `<button class="choice${normModel(O.model) === normModel(n) && O.sides.length ? ' sel' : ''}" data-model="${esc(n)}">${jmi && normModel(jmi) === normModel(n) ? '<span class="badge">✓ מהעבודה</span>' : ''}${tileSVG(n, sys)}${esc(shapeText(n, sys))}<small>${esc(n)}</small></button>`).join('')}</div>`).join('')}
+      <button class="link" id="bw_other">צורה אחרת? בנייה חופשית (מצב מתקדם)</button>`;
+  };
+  SCR.meas = () => {
+    seedTotals(); applyCalc();
+    const N = O.sides.length; const bath = isBathOrder(O);
+    const fl = fixedList();
+    let flat = 0; let rows = '';
+    O.sides.forEach((sd, si) => {
+      const base = flat; flat += sd.els.length;
+      const p = plan(sd);
+      const name = N === 1 ? (bath ? 'מהקיר עד הקצה הפתוח' : 'חזית – מקיר לקיר') : (si === 0 ? 'צלע שמאל – מהקיר עד הפינה' : 'צלע ימין – מהקיר עד הפינה');
+      const all = sd.els.map((_, k) => base + k).join(',');
+      let h = `<div class="wside"><div class="sname">${name}</div>`;
+      if (p.total) h += `<div class="mrow" data-hl="${all}"><div><b>אורך הצלע כולו</b><span class="s">${N === 1 ? 'מקיר לקיר, למטה' : 'מהקיר עד הפינה, למטה'}</span></div><input data-tot="${si}" inputmode="decimal" value="${W.totals.get(sd) || ''}" placeholder="ס״מ"></div>`;
+      const order = (N >= 2 && si === N - 1) ? sd.els.map((e, k) => [e, k]).reverse() : sd.els.map((e, k) => [e, k]);
+      order.forEach(([e, k], pos) => {
+        const first = pos === 0, last = pos === order.length - 1;
+        const where = sd.els.length === 1 ? (N === 1 ? 'מקיר לקיר' : 'מהקיר עד הפינה') : N === 1 ? (first ? 'צמוד לקיר שמאל' : last ? (bath ? 'בקצה הפתוח' : 'צמוד לקיר ימין') : 'באמצע') : (first ? 'צמוד לקיר' : last ? 'בפינה' : 'באמצע');
+        const calc = p.calc.includes(e);
+        let ctl;
+        if (calc) ctl = `<div class="calc" data-calc="${si}:${k}">${Number(e.w) ? fmt(e.w) : '—'}</div>`;
+        else if (e.type === 'fixed' && fl) {
+          const cur = Number(e.w) || 0;
+          const opts = ['<option value="">בחרו…</option>'].concat(fl.sizes.map(z => `<option value="${z}"${z === cur ? ' selected' : ''}>${z}${fl.extra && z === 60 ? ' (בתוספת מחיר)' : ''}</option>`));
+          if (cur && !fl.sizes.includes(cur)) opts.push(`<option value="${cur}" selected>${cur}</option>`);
+          ctl = `<select data-el="${si}:${k}">${opts.join('')}</select>`;
+        } else ctl = `<input data-el="${si}:${k}" inputmode="decimal" value="${Number(e.w) || ''}" placeholder="ס״מ">`;
+        const sub = calc ? (p.equal ? `✓ חושב לבד: הצלע ÷ ${p.calc.length}` : '✓ חושב לבד: הצלע פחות השאר') : (e.type === 'fixed' && fl ? 'מידה מהמלאי' : where + ' · רוחב למטה');
+        let ex = '';
+        if (W.exOpen.has(e)) {
+          ex = e.type === 'fixed'
+            ? `<div class="ex"><span>מדרגה:</span><input type="number" inputmode="decimal" data-x="stepW" data-e="${si}:${k}" value="${e.stepW ?? ''}" placeholder="רוחב"><input type="number" inputmode="decimal" data-x="stepH" data-e="${si}:${k}" value="${e.stepH ?? ''}" placeholder="גובה"><label><input type="checkbox" data-x="towel" data-e="${si}:${k}"${e.towel ? ' checked' : ''}> ידית מגבת על הקבוע</label></div>`
+            : `<div class="ex"><label><input type="checkbox" data-x="towel" data-e="${si}:${k}"${e.towel ? ' checked' : ''}> ידית מגבת</label>${isProfile() ? '' : `<label><input type="checkbox" data-x="extraHinge" data-e="${si}:${k}"${e.extraHinge ? ' checked' : ''}> ציר נוסף</label>`}</div>`;
+        }
+        const extras = (e.type === 'fixed' ? (e.stepW && e.stepH ? ' · מדרגה' : '') + (e.towel ? ' · ידית מגבת' : '') : (e.towel ? ' · ידית מגבת' : '') + (e.extraHinge ? ' · ציר נוסף' : ''));
+        // which side the door hangs on (only where both sides are possible: no other door next to it)
+        let hingeRow = '';
+        if (e.type === 'door') {
+          const L = neighbor(si, k, -1), R = neighbor(si, k, +1);
+          if (!isDoor(L) && !isDoor(R) && L.kind !== 'open' && R.kind !== 'open') {
+            const inf = resolveDoors(new Map(), []).get(e.id); const cur = inf ? inf.hinge : 'left';
+            const nm = n => n.kind === 'wall' ? 'קיר' : n.el && n.el.type === 'fixed' ? 'קבוע' : 'זכוכית';
+            const alaska = /^אלסקה/.test(O.model || '');
+            hingeRow = `<div class="ex"><span>${alaska ? 'פתיחה:' : 'הציר:'}</span><div class="seg" style="flex:1"><button type="button" data-hinge="${si}:${k}:left" class="${cur === 'left' ? 'on' : ''}">◀ ציר משמאל (${nm(L)})${alaska ? (L.kind === 'wall' ? ' · מהאמצע' : ' · מהצד') : ''}</button><button type="button" data-hinge="${si}:${k}:right" class="${cur === 'right' ? 'on' : ''}">ציר מימין (${nm(R)}) ▶${alaska ? (R.kind === 'wall' ? ' · מהאמצע' : ' · מהצד') : ''}</button></div></div>`;
+          }
+        }
+        h += `<div class="mrow" data-hl="${base + k}"><div><b>${TN[e.type]}${extras}</b><span class="s">${sub}</span></div>${ctl}${hingeRow}<button class="exl" type="button" data-exo="${si}:${k}">${W.exOpen.has(e) ? 'סגור תוספות' : (e.type === 'fixed' ? '+ תוספות (מדרגה / ידית מגבת)' : '+ תוספות (ידית מגבת' + (isProfile() ? '' : ' / ציר נוסף') + ')')}</button>${ex}</div>`;
+      });
+      rows += h + '</div>';
+    });
+    const d = W.dev.get(O) || {};
+    const devRow = (side, label) => { const e = d[side] || {}; return `<div class="devrow"><span>${label}</span><input data-dev="${side}" inputmode="decimal" value="${e.v || ''}" placeholder="0"><div class="seg"><button type="button" data-devw="${side}:1" class="${e.wider !== false ? 'on' : ''}">למעלה רחב יותר</button><button type="button" data-devw="${side}:0" class="${e.wider === false ? 'on' : ''}">למעלה צר יותר</button></div></div>`; };
+    const H = isProfile() ? '185 ס״מ (קבוע לפרופיל)' : fmt(O.height) + ' ס״מ' + (isBathOrder(O) ? ' (אמבטיון)' : '') + ' – לשינוי במסך הבא';
+    return `<h2 class="q">מודדים</h2><p class="wh">מודדים <b>למטה</b>, ברוטו – בלי הורדות. לוחצים על שורה והחלק שלה נצבע בצהוב בשרטוט.</p>
+      <div class="auto"><span>דגם</span><b>${esc(O.model || '—')}</b></div>
+      <div class="draw" id="bw_draw">${drawHL()}</div>
+      ${bath ? '' : '<button class="link" id="bw_mirror">↔ הפוך צד (תמונת מראה)</button>'}
+      ${rows}
+      ${isProfile() ? '' : (() => { const ans = W.devAns.get(O);
+        return `<div class="wside" style="border:2px solid ${ans ? (ans === 'dev' ? '#b4540a' : '#2c7a3f') : '#e0a800'};background:${ans ? '#fff' : '#fffbeb'}">
+          <div class="sname">📐 סטייה בקיר – חובה לבדוק</div>
+          <div class="hint" style="font-size:13px">מודדים כל קיר <b>למעלה ולמטה</b>. בצירים נקיים זה קורה הרבה.</div>
+          <div class="seg"><button type="button" data-devq="straight" class="${ans === 'straight' ? 'on' : ''}" style="padding:12px;font-size:15px">✓ הקירות ישרים</button><button type="button" data-devq="dev" class="${ans === 'dev' ? 'on' : ''}" style="padding:12px;font-size:15px">⚠ יש סטייה</button></div>
+          ${ans === 'dev' ? `<div class="hint">רושמים רק את ההפרש בין למעלה ללמטה, למשל 0.4</div>${devRow('left', 'קיר שמאל')}${bath ? '' : devRow('right', 'קיר ימין')}` : ''}</div>`; })()}
+      ${needsReason() ? `<div class="wmsg warn"><b>בעבודה רשום ${esc(jobModelFor(CUR.i))}, ועכשיו זה ${esc(O.model)}.</b><br>למה? (חובה)<textarea id="bw_reason2" style="margin-top:6px;width:100%">${esc(W.reasonText['k' + CUR.i] || '')}</textarea></div>` : ''}
+      <div id="bw_warns"></div>
+      <div class="auto"><span>גובה</span><b>${H}</b></div>`;
+  };
+  SCR.glass = () => {
+    const prof = isProfile();
+    if (prof && !profileComboOk()) W.showOpts = true;
+    const f = k => W.pre[k] ? ' <span class="from">✓ מהעבודה</span>' : '';
+    let finOpts = [...B('f_finish').options].map(o => o.value);
+    if (!finOpts.includes(O.finish)) finOpts.push(O.finish);
+    let glassOpts = GLASS_TYPES.includes(O.glass) ? GLASS_TYPES : GLASS_TYPES.concat([O.glass]);
+    if (prof) { finOpts = Object.keys(PROFILE_COMBOS); if (!finOpts.includes(O.finish)) finOpts = [O.finish].concat(finOpts); glassOpts = PROFILE_COMBOS[O.finish] || PROFILE_COMBOS['ניקל מבריק']; if (!glassOpts.includes(O.glass)) glassOpts = [O.glass].concat(glassOpts); }
+    const sel = (id, label, v, list) => `<label class="fld" for="${id}">${label}<select id="${id}">${list.map(x => `<option value="${esc(x)}"${String(x) === String(v) ? ' selected' : ''}>${esc(prof && x === 'ניקל מבריק' ? 'ניקל' : x)}</option>`).join('')}</select></label>`;
+    return `<h2 class="q">זכוכית ופרזול</h2><p class="wh">${Object.keys(W.pre).length ? 'מולא מההזמנה. משנים רק אם הלקוח ביקש אחרת.' : 'לבדוק עם הלקוח. משנים בכפתור "שינוי".'}</p>
+      <div class="sum"><div><span>זכוכית</span><b>${esc(O.glass)}${f('glass')}</b></div><div><span>עובי</span><b>${esc(O.thick)} מ״מ${prof ? ' (פרופיל)' : f('thick')}</b></div><div><span>${prof ? 'צבע פרופיל' : 'גימור פרזול'}</span><b>${esc(prof && O.finish === 'ניקל מבריק' ? 'ניקל' : O.finish)}${f('finish')}</b></div><div><span>גובה</span><b>${fmt(O.height)} ס״מ${prof ? ' (פרופיל)' : ''}</b></div></div>
+      ${prof && !profileComboOk() ? `<div class="wmsg err">⚠ בפרופיל: <b>שחור</b> – רק זכוכית שקופה. <b>ניקל</b> – שקופה / גרניט / פסים. לבחור שילוב קיים.</div>` : ''}
+      <button class="link" id="bw_chg">${W.showOpts ? 'סגור' : 'שינוי'}</button>
+      ${W.showOpts ? sel('bw_glass', 'זכוכית', O.glass, glassOpts) + (prof ? '' : sel('bw_thick', 'עובי (מ״מ)', O.thick, ['6', '8', '10'])) + sel('bw_fin', prof ? 'צבע פרופיל' : 'גימור פרזול', O.finish, finOpts) + (prof ? '' : `<label class="fld" for="bw_h">גובה (ס״מ)<input id="bw_h" inputmode="decimal" value="${esc(O.height)}"></label>`) : ''}`;
+  };
+  SCR.photo = () => {
+    const src = !B('photoPrev').hidden && B('photoPrev').src;
+    return `<h2 class="q">צילום והערות</h2><p class="wh">תמונה של המקום עוזרת מאוד למשרד.</p>
+      <label class="cam" for="f_photo">${src ? `<img src="${src}" alt="צילום המקום"><span>לחץ כדי לצלם שוב</span>` : '<span style="font-size:40px">📷</span><b>צלם את המקום</b><span>לא חובה</span>'}</label>
+      ${src ? '<button class="link" id="bw_phx">הסר צילום</button>' : ''}
+      <label class="fld" for="bw_note">הערות למשרד<textarea id="bw_note" placeholder="למשל: אין סף, קיר עקום משמאל, אריח בולט…">${esc(W.userNote)}</textarea></label>`;
+  };
+  SCR.sign = () => {
+    const miss = warnings().filter(w => w !== 'הלקוח עדיין לא חתם');
+    const signed = W.strokes.length > 0;
+    const ok = (c, t) => `<div><span class="dot ${c ? 'y' : 'n'}">${c ? '✓' : '!'}</span>${t}</div>`;
+    const list = []; M.items.forEach((it, i) => it.opts.forEach((o, j) => list.push([i, j, o])));
+    const multi = list.length > 1;
+    return `<h2 class="q">בדיקה וחתימת הלקוח</h2>
+      <div class="sum"><div><span>לקוח</span><b>${esc(M.customer)}</b></div>${list.map(([i, j, o]) => `<div><span>${esc(optLabel(i, j))}</span><b>${o.system === 'profile' ? 'פרופיל' : 'צירים נקיים'} · ${esc(o.model || 'צורה חופשית')}<br><small>${esc(describeOpt(o).replace(/^(פרופיל|צירים נקיים) · /, ''))}</small><br><small>${esc(o.glass)} ${esc(o.thick)} מ״מ · ${esc(o.finish)} · גובה ${fmt(o.height)}</small></b></div>`).join('')}</div>
+      ${multi ? `<div class="chips">${list.map(([i, j]) => `<button type="button" data-edit="${i}:${j}">✎ ${esc(optLabel(i, j))}</button><button type="button" data-del="${i}:${j}" title="מחק">✕</button>`).join('')}</div>` : ''}
+      ${W.itemModels.length > M.items.length ? `<div class="wmsg err">בעבודה רשומים ${W.itemModels.length} מקלחונים – נמדדו ${M.items.length}. חסר: ${W.itemModels.slice(M.items.length).map(m => esc(m.name) + ' (' + (m.sys === 'profile' ? 'פרופיל' : 'צירים נקיים') + ')').join(', ')}</div>` : ''}
+      <div class="row"><button type="button" id="bw_addItem">+ מקלחון נוסף${W.itemModels[M.items.length] ? ' – ' + esc(W.itemModels[M.items.length].name) : ''}</button>${M.items[CUR.i].opts.length < 2 ? '<button type="button" id="bw_addOpt">+ אופציה ב׳ לאותו מקום</button>' : ''}</div>
+      <div class="terms">${esc(TERMS)}</div>
+      <div class="row" style="justify-content:space-between"><b>חתימת הלקוח</b><button class="link" id="bw_clr" type="button">נקה</button></div>
+      <div class="sigw"><canvas id="bw_sig"></canvas><div class="ph" id="bw_ph"${signed ? ' hidden' : ''}>הלקוח חותם כאן באצבע</div></div>
+      <div class="chk">${ok(!miss.length, miss.length ? 'חסר: ' + esc(miss.join(' · ')) : 'כל המידות מולאו')}${ok(!B('photoPrev').hidden, !B('photoPrev').hidden ? 'יש צילום' : 'אין צילום (לא חובה)')}${list.filter(([i, j, o]) => o.system !== 'profile').map(([i, j, o]) => { const a = W.devAns.get(o); return ok(a === 'straight' || a === 'dev', (multi ? esc(optLabel(i, j)) + ': ' : '') + (a === 'straight' ? 'קירות ישרים (נבדק)' : a === 'dev' ? '⚠ יש סטייה בקיר – נרשם' : 'לא נבדקה סטייה בקיר')); }).join('')}<span id="bw_sigok">${ok(signed, signed ? 'הלקוח חתם' : 'חסרה חתימת לקוח')}</span></div>
+      <div id="bw_msg" class="wmsg" hidden></div>`;
+  };
+
+  /* ---------- navigation ---------- */
+  function canNext() {
+    switch (W.step) {
+      case 'cust': return !!String(M.customer || '').trim();
+      case 'sys': return !!O.system;
+      case 'shape': return O.sides.length > 0 && !!O.model && (!needsReason() || !!String(W.reasonText['k' + CUR.i] || '').trim());
+      case 'meas': return !!allMeasured() && !profileDoorTooSmall() && (isProfile() || !!W.devAns.get(O)) && (!needsReason() || !!String(W.reasonText['k' + CUR.i] || '').trim());
+      case 'sign': return W.strokes.length > 0;
+      case 'glass': return !isProfile() || profileComboOk();
+      default: return true;
+    }
+  }
+  function foot() {
+    const st = steps(); const i = st.findIndex(s => s[0] === W.step); const last = i === st.length - 1;
+    B('blWF').innerHTML = (i > 0 ? '<button class="bback" id="bw_back" type="button">הקודם</button>' : '') +
+      (last ? `<button class="bsend" id="bw_send" type="button"${canNext() ? '' : ' disabled'}>📤 ${EMBED ? 'שמור ושלח למשרד' : 'שלח למשרד'}</button>` : `<button class="bnext" id="bw_next" type="button"${canNext() ? '' : ' disabled'}>הבא</button>`);
+    const n = B('bw_next'); if (n) n.onclick = () => go(1);
+    const b = B('bw_back'); if (b) b.onclick = () => go(-1);
+    const s = B('bw_send'); if (s) s.onclick = send;
+  }
+  function go(d) {
+    if (d > 0 && !canNext()) return;
+    if (W.step === 'meas' && d > 0) applyCalc();
+    const st = steps(); const i = st.findIndex(s => s[0] === W.step);
+    const nx = st[Math.max(0, Math.min(st.length - 1, i + d))][0];
+    W.step = nx; W.hl = null; render(); B('blWB').scrollTop = 0;
+  }
+  function header() {
+    const st = steps(); const i = st.findIndex(s => s[0] === W.step);
+    B('blWT').textContent = st[i][1];
+    const multi = M.items.length > 1 || M.items[CUR.i].opts.length > 1;
+    B('blWS').textContent = (M.customer || '') + (multi && ['shape', 'meas', 'glass'].includes(W.step) ? ' · ' + optLabel(CUR.i, CUR.j) : '');
+    B('blWBar').innerHTML = st.map((_, k) => `<span class="${k <= i ? 'on' : ''}"></span>`).join('');
+  }
+  function render() { header(); B('blWB').innerHTML = SCR[W.step](); wire(); foot(); }
+  const elAt = key => { const [si, k] = key.split(':').map(Number); return O.sides[si] && O.sides[si].els[k]; };
+  function updMeas() {
+    applyCalc();
+    B('bw_draw').innerHTML = drawHL();
+    document.querySelectorAll('#blWB [data-calc]').forEach(c => { const e = elAt(c.dataset.calc); c.textContent = e && Number(e.w) ? fmt(e.w) : '—'; });
+    B('bw_warns').innerHTML = (!isProfile() && allMeasured() && !W.devAns.get(O) ? '<div class="wmsg warn">⚠ לפני "הבא": לסמן אם הקירות ישרים או שיש סטייה</div>' : '') + measWarns().map(([c, t]) => `<div class="wmsg ${c}">${c === 'ok' ? '✓' : '⚠'} ${esc(t)}</div>`).join('');
+    foot();
+  }
+  function wire() {
+    const on = (id, ev, fn) => { const e = B(id); if (e) e.addEventListener(ev, fn); };
+    if (W.step === 'cust') {
+      [['bw_c', 'customer'], ['bw_p', 'customerPhone'], ['bw_a', 'address'], ['bw_s', 'store'], ['bw_n', 'no']].forEach(([id, k]) => on(id, 'input', e => { M[k] = e.target.value; if (k === 'customer') { foot(); header(); } }));
+    }
+    if (W.step === 'sys') document.querySelectorAll('#blWB [data-sys]').forEach(b => b.onclick = () => { setSystem(b.dataset.sys); render(); });
+    if (W.step === 'shape') {
+      document.querySelectorAll('#blWB [data-model]').forEach(b => b.onclick = () => { selectModel(b.dataset.model); setReason(W.reasonText['k' + CUR.i] || ''); render(); const r = B('bw_rbox'); if (r) r.scrollIntoView({ block: 'center' }); });
+      on('bw_room', 'input', e => { M.items[CUR.i].room = e.target.value; header(); });
+      on('bw_reason', 'input', e => { setReason(e.target.value); foot(); });
+      on('bw_other', 'click', () => toAdvanced());
+    }
+    if (W.step === 'meas') {
+      const hl = row => { W.hl = row.dataset.hl.split(',').map(Number); document.querySelectorAll('#blWB .mrow').forEach(r => r.classList.toggle('act', r === row)); B('bw_draw').innerHTML = drawHL(); };
+      document.querySelectorAll('#blWB .mrow').forEach(row => { row.addEventListener('focusin', () => hl(row)); row.addEventListener('click', ev => { if (ev.target.tagName !== 'INPUT' && ev.target.tagName !== 'SELECT' && ev.target.tagName !== 'BUTTON') hl(row); }); });
+      const num = v => { v = String(v).replace(',', '.').replace(/[^\d.]/g, ''); return v === '' ? null : Number(v); };
+      document.querySelectorAll('#blWB [data-tot]').forEach(inp => inp.addEventListener('input', () => { const sd = O.sides[Number(inp.dataset.tot)]; const v = num(inp.value); if (v) W.totals.set(sd, v); else W.totals.delete(sd); updMeas(); }));
+      document.querySelectorAll('#blWB [data-el]').forEach(inp => inp.addEventListener(inp.tagName === 'SELECT' ? 'change' : 'input', () => { const e = elAt(inp.dataset.el); e.w = num(inp.value) || 0; updMeas(); }));
+      document.querySelectorAll('#blWB [data-exo]').forEach(b => b.onclick = () => { const e = elAt(b.dataset.exo); if (W.exOpen.has(e)) W.exOpen.delete(e); else W.exOpen.add(e); render(); });
+      document.querySelectorAll('#blWB [data-x]').forEach(inp => inp.addEventListener(inp.type === 'checkbox' ? 'change' : 'input', () => { const e = elAt(inp.dataset.e); const k = inp.dataset.x;
+        if (inp.type === 'checkbox') { e[k] = inp.checked; if (k === 'extraHinge') W.autoHinge.delete(e); } else e[k] = num(inp.value); updMeas(); }));
+      document.querySelectorAll('#blWB [data-dev]').forEach(inp => inp.addEventListener('input', () => { const d = W.dev.get(O) || {}; const s = inp.dataset.dev; d[s] = Object.assign({ wider: true }, d[s], { v: num(inp.value) }); W.dev.set(O, d); devNote(); updMeas(); }));
+      document.querySelectorAll('#blWB [data-devw]').forEach(b => b.onclick = () => { const [s, w] = b.dataset.devw.split(':'); const d = W.dev.get(O) || {}; d[s] = Object.assign({}, d[s], { wider: w === '1' }); W.dev.set(O, d); applyDev(); devNote(); render(); });
+      document.querySelectorAll('#blWB [data-hinge]').forEach(b => b.onclick = () => {
+        const [si, k, side] = b.dataset.hinge.split(':'); const e = O.sides[Number(si)].els[Number(k)];
+        e.hinge = side;
+        // אלסקה: hinge on the fixed glass = פתיחה מהצד (אלסקה), hinge on the wall = אלסקה פתיחה מהאמצע
+        if (/^אלסקה/.test(O.model || '')) {
+          const n = neighbor(Number(si), Number(k), side === 'left' ? -1 : 1);
+          const m = n.kind === 'wall' ? 'אלסקה פתיחה מהאמצע' : 'אלסקה';
+          if (O.model !== m) { O.model = m; B('f_model').value = m; setReason(W.reasonText['k' + CUR.i] || ''); }
+        }
+        render();
+      });
+      on('bw_reason2', 'input', e => { setReason(e.target.value); foot(); });
+      document.querySelectorAll('#blWB [data-devq]').forEach(b => b.onclick = () => { W.devAns.set(O, b.dataset.devq); if (b.dataset.devq === 'straight') { W.dev.delete(O); applyDev(); } devNote(); render(); });
+      on('bw_mirror', 'click', () => { mirror(); render(); });
+      updMeas();
+    }
+    if (W.step === 'glass') {
+      on('bw_chg', 'click', () => { W.showOpts = !W.showOpts; render(); });
+      on('bw_glass', 'change', e => { O.glass = e.target.value; delete W.pre.glass; render(); });
+      on('bw_thick', 'change', e => { O.thick = e.target.value; delete W.pre.thick; render(); });
+      on('bw_fin', 'change', e => { O.finish = e.target.value; delete W.pre.finish; if (isProfile() && PROFILE_COMBOS[O.finish] && !PROFILE_COMBOS[O.finish].includes(O.glass)) O.glass = 'שקופה'; render(); });
+      on('bw_h', 'change', e => { const v = Number(String(e.target.value).replace(',', '.')); if (v) O.height = v; render(); });
+    }
+    if (W.step === 'photo') {
+      on('bw_note', 'input', e => { W.userNote = e.target.value; syncNote(); });
+      on('bw_phx', 'click', () => { B('btnPhotoClear').click(); render(); });
+    }
+    if (W.step === 'sign') {
+      const cv = B('bw_sig');
+      W.pad = sigPad(cv);
+      setTimeout(() => { W.pad.fit(); W.pad.load(W.strokes.slice()); }, 60);
+      const after = () => setTimeout(() => { W.strokes = W.pad.strokes.slice(); B('bw_ph').hidden = W.strokes.length > 0; B('bw_sigok').innerHTML = `<div><span class="dot ${W.strokes.length ? 'y' : 'n'}">${W.strokes.length ? '✓' : '!'}</span>${W.strokes.length ? 'הלקוח חתם' : 'חסרה חתימת לקוח'}</div>`; foot(); }, 0);
+      cv.addEventListener('pointerup', after); cv.addEventListener('pointerleave', after);
+      on('bw_clr', 'click', () => { W.pad.clear(); after(); });
+      on('bw_addItem', 'click', () => addShower());
+      on('bw_addOpt', 'click', () => { const sys = O.system; B('btnAddOpt').click(); if (sys) setSystem(sys); W.step = 'shape'; render(); });
+      document.querySelectorAll('#blWB [data-edit]').forEach(b => b.onclick = () => { const [i, j] = b.dataset.edit.split(':').map(Number); selectOpt(i, j); W.step = O.system ? 'shape' : 'sys'; render(); });
+      document.querySelectorAll('#blWB [data-del]').forEach(b => b.onclick = () => { const [i, j] = b.dataset.del.split(':').map(Number); selectOpt(i, j); (M.items[i].opts.length > 1 ? B('btnDelOpt') : B('btnDelItem')).click(); render(); });
+    }
+  }
+  // the original status line (#msg) is shown inside the wizard on the last screen
+  new MutationObserver(() => { const m = B('bw_msg'); if (!m) return; const src = B('msg'); m.hidden = !src.textContent; m.textContent = src.textContent; m.className = 'wmsg ' + (/\berr\b/.test(src.className) ? 'err' : /\bok\b/.test(src.className) ? 'ok' : 'warn'); }).observe(B('msg'), { childList: true, characterData: true, subtree: true, attributes: true });
+  B('photoPrev').addEventListener('load', () => { if (W.step === 'photo' && body.classList.contains('bl-wiz')) render(); });
+  B('f_photo').addEventListener('change', () => setTimeout(() => { if (W.step === 'photo' && body.classList.contains('bl-wiz')) render(); }, 1500));
+
+  /* ---------- send: exactly the same buttons as the full form ---------- */
+  function syncAll() { syncNote(); SIG.C.load(W.strokes.slice()); renderHeader(); selectOpt(CUR.i, CUR.j); }
+  function send() {
+    if (!W.strokes.length) return;
+    syncAll(); SIG.I.clear();
+    if (EMBED && B('blSave')) B('blSave').click(); else B('btnSend').click();
+  }
+
+  /* ---------- simple ↔ advanced ---------- */
+  function toAdvanced() { syncAll(); body.classList.remove('bl-wiz'); body.classList.add('bl-advanced'); window.scrollTo(0, 0); setTimeout(() => { try { SIG.C.fit(); SIG.I.fit(); } catch (e) {} }, 60); }
+  function toWizard(step) {
+    { const rs = Object.values(W.reasons); W.userNote = String(M.note || '').split('\n').filter(l => !rs.includes(l)).join('\n'); } W.strokes = SIG.C.strokes.slice();
+    W.step = step || (O.sides.some(sd => sd.els.length) ? 'meas' : (O.system ? 'shape' : 'sys'));
+    if (W.step === 'sys' && W.sysFixed) W.step = 'shape';
+    body.classList.add('bl-wiz'); body.classList.remove('bl-advanced'); render();
+  }
+  B('blWAdv').onclick = toAdvanced;
+  B('blBackWiz').onclick = () => toWizard();
+  if (!EMBED) { B('blWNew').hidden = false; B('blWNew').onclick = () => { const old = M; B('btnNew').click(); if (M !== old) { W.strokes = []; W.userNote = ''; W.reasons = {}; W.reasonText = {}; W.pre = {}; W.jobModel = null; W.sysFixed = false; toWizard('cust'); } }; }
+  function addShower() {
+    const a = M.items[0].opts[0];
+    M.items.push({ room: '', opts: [newOrder()] }); selectOpt(M.items.length - 1, 0);
+    const jm = W.itemModels[CUR.i];
+    O.glass = a.glass; O.finish = a.finish; if (a.system !== 'profile') O.thick = a.thick;
+    if (jm) { setSystem(jm.sys); selectModel(jm.name); M.items[CUR.i].room = jm.name; }
+    W.step = 'sys'; render();
+  }
+  window.blWizard = { toAdvanced, toWizard, state: W };
+
+  /* ---------- start ---------- */
+  function start() {
+    if (EMBED && !FROM_LINK) {
+      if (init.store && !M.store) M.store = init.store;
+      const pr = readProduct(init.product || '');
+      const models = pr.models || [];
+      const mixed = new Set(models.map(m => m.sys)).size > 1;
+      let sys = mixed ? models[0].sys : init.system || pr.sys || (models[0] ? models[0].sys : null);
+      if (sys) { setSystem(sys); W.sysFixed = !mixed; }
+      // one model per shower, in the order written in the job (only the models of the chosen system when it is one system)
+      W.itemModels = mixed ? models : models.filter(m => m.sys === sys);
+      if (W.itemModels.length > 1) M.items[0].room = W.itemModels[0].name;
+      prefillOrder(O, pr);
+      ['glass', 'finish', 'thick'].forEach(k => { if (pr[k] && (k !== 'thick' || sys !== 'profile')) W.pre[k] = true; });
+      const jm = jobModelFor(0);
+      if (jm) { W.jobModel = jm; selectModel(jm); }
+      renderShower();
+    }
+    if (FROM_LINK) { body.classList.add('bl-advanced'); return; }   // an existing link opens in the full form (button to switch)
+    toWizard('cust');
+  }
+  setTimeout(start, 450);   // after the original page and the other add-ons have loaded the order
+})();
+</script>
+
 </body>
 </html>
