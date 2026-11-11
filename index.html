@@ -150,7 +150,7 @@ const FIREBASE_CONFIG = {
   appId: "1:1042161550667:web:61a07d439a34c4705b94ce"
 };
 
-const APP_VERSION = "2026-11-11-preprod-quotes";
+const APP_VERSION = "2026-11-11-tutorial";
 // ─── Password hashing — passwords are never stored in plain text ────
 async function hashPassword(accountId, pw) {
   const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode("bariline-v1|" + String(accountId) + "|" + String(pw || "")));
@@ -5050,7 +5050,7 @@ const PickupInstallerPage = ({ workOrders, installerId, currentUser, accounts })
     pk.error && h("div", { style: { ...pkBox, color: colors.danger } }, "⚠ האיסופים לא נטענו: ", pk.error),
     active.map(reqCard),
     h("div", { style: pkBox },
-      h("div", { style: { fontWeight: 800, fontSize: 17, marginBottom: 8 } }, "מה אתה לוקח מהמחסן?"),
+      h("div", { "data-tour": "pk-list", style: { fontWeight: 800, fontSize: 17, marginBottom: 8 } }, "מה אתה לוקח מהמחסן?"),
       soon.length ? h("div", { style: { background: "#dff3f0", border: "1.5px solid #0f766e", borderRadius: 12, padding: 10, marginBottom: 10, fontSize: 14 } },
         "💡 ", h("b", { style: { color: "#0f766e" } }, "מומלץ: "), soon.map(w => w.customerName + " (" + dayLabel(w.scheduledDate) + ")").join(", "), " – מתוזמנות בימים הקרובים ועוד לא נאספו.",
         h("div", null, h("button", { onClick: () => setSel(sel.concat(soon.map(w => w.id))), style: { ...pkBtn("#0f766e"), marginTop: 8 } }, "סמן את כולן"))) : null,
@@ -5231,10 +5231,10 @@ const WarehousePage = ({ workOrders, installers, currentUser, view }) => {
     pk.error && h("div", { style: { ...pkBox, color: colors.danger } }, "⚠ ", pk.error),
     scanFor && h(BarcodeScan, { onCode: onScan, onClose: () => setScanFor(null) }),
     scanMsg && h("div", { onClick: () => setScanMsg(null), style: { ...pkBox, cursor: "pointer", fontWeight: 700, fontSize: 15, background: scanMsg[0] === "ok" ? "#e3f4e8" : "#fde7e4", color: scanMsg[0] === "ok" ? "#15803d" : "#b42318", border: "2px solid currentColor" } }, scanMsg[1], h("div", { style: { fontSize: 12, fontWeight: 400, marginTop: 4, color: colors.textLight } }, "לחיצה לסגירה")),
-    view === "pickups" && h("button", { onClick: () => setScanFor("any"), style: { ...pkBtn("#12303a"), width: "100%", padding: 14, fontSize: 16, marginBottom: 12 } }, "📷 סרוק ברקוד של מתקין"),
+    view === "pickups" && h("button", { "data-tour": "wh-scan", onClick: () => setScanFor("any"), style: { ...pkBtn("#12303a"), width: "100%", padding: 14, fontSize: 16, marginBottom: 12 } }, "📷 סרוק ברקוד של מתקין"),
     view === "pickups" && h("div", null,
       waitingAdmin ? h("div", { style: { ...pkBox, color: colors.textMuted, fontSize: 13.5 } }, waitingAdmin, " בקשות מחכות לאישור המנהל – יופיעו כאן אחרי האישור") : null,
-      list.length ? list.map(p => h("div", { key: p.id, style: pkBox },
+      list.length ? list.map(p => h("div", { key: p.id, "data-tour": "wh-req", style: pkBox },
         h("b", { style: { fontSize: 16 } }, p.installerName, " · ", dayLabel(p.day), " ", h("bdi", { dir: "ltr" }, p.slot)), h(PickupFlow, { status: p.status }),
         p.jobIds.map(id => { const w = workOrders.find(x => x.id === id); return h("label", { key: id, style: { display: "flex", gap: 10, alignItems: "center", padding: "8px 0", borderTop: `1px solid ${colors.border}` } },
           h("input", { type: "checkbox", disabled: p.status !== "approved", checked: okOf(p).includes(id), onChange: e => setOk({ ...ok, [p.id]: e.target.checked ? okOf(p).concat(id) : okOf(p).filter(x => x !== id) }), style: { width: 22, height: 22, accentColor: "#0f766e" } }),
@@ -5281,7 +5281,7 @@ const InstCard = ({ w, sc, workOrders, installerId, onOpen }) => {
   const btn = (txt, href, main, onClick) => h(href ? "a" : "button", { href, target: href && href.startsWith("http") ? "_blank" : undefined, rel: "noopener", onClick: e => { e.stopPropagation(); if (onClick) onClick(); },
     style: { flex: 1, minHeight: 44, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: 10, border: main ? 0 : `1px solid ${colors.border}`, background: main ? "#0f766e" : "#fff", color: main ? "#fff" : colors.text, fontWeight: 700, fontSize: 14, textDecoration: "none", cursor: "pointer", fontFamily: "inherit" } }, txt);
   const town = (placeOf(it.address) || {}).town || it.address || "";
-  return h("div", { onClick: onOpen, style: { background: "#fff", borderRadius: 14, border: `1px solid ${colors.border}`, overflow: "hidden", cursor: "pointer", marginBottom: 10 } },
+  return h("div", { onClick: onOpen, "data-tour": "card", style: { background: "#fff", borderRadius: 14, border: `1px solid ${colors.border}`, overflow: "hidden", cursor: "pointer", marginBottom: 10 } },
     h("div", { style: { background: bg, color: fg, display: "flex", justifyContent: "space-between", padding: "7px 12px", fontWeight: 800, fontSize: 14, gap: 8 } }, h("span", null, label), h("span", null, when)),
     h("div", { style: { padding: "10px 12px 12px", display: "flex", flexDirection: "column", gap: 4 } },
       h("div", { style: { fontWeight: 800, fontSize: 17 } }, it.customerName || "—"),
@@ -5314,8 +5314,8 @@ const InstallerJobList = ({ workOrders, serviceCalls, installerId, setSelected, 
   const segBtn = (k, l) => h("button", { key: k, onClick: () => { setSeg(k); setKind("all"); }, style: { border: 0, borderRadius: 9, padding: "9px 4px", fontWeight: 700, fontSize: 14, cursor: "pointer", fontFamily: "inherit", background: seg === k ? "#fff" : "transparent", color: seg === k ? colors.text : colors.textLight, boxShadow: seg === k ? "0 1px 3px rgba(0,0,0,.12)" : "none" } }, l, " (", items.filter(i => i.seg === k).length, ")");
   const chip = (k, l) => h("button", { key: k, onClick: () => setKind(k), style: { flex: "none", border: `1.5px solid ${kind === k ? colors.text : colors.border}`, background: kind === k ? colors.text : "#fff", color: kind === k ? "#fff" : colors.text, borderRadius: 99, padding: "6px 12px", fontSize: 13.5, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" } }, l, " (", n(k), ")");
   return h("div", null,
-    h("div", { style: { display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 4, background: "#edf1f4", borderRadius: 12, padding: 4, marginBottom: 10 } }, segBtn("plan", "📅 לתאם"), segBtn("sched", "🗓 מתוזמן"), segBtn("done", "✓ בוצע")),
-    h("div", { style: { display: "flex", gap: 6, overflowX: "auto", marginBottom: 12, paddingBottom: 2 } }, chip("all", "הכל"), chip("measure", "📏 מדידות"), chip("install", "🔧 התקנות"), chip("service", "🛠 שירות")),
+    h("div", { "data-tour": "seg", style: { display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 4, background: "#edf1f4", borderRadius: 12, padding: 4, marginBottom: 10 } }, segBtn("plan", "📅 לתאם"), segBtn("sched", "🗓 מתוזמן"), segBtn("done", "✓ בוצע")),
+    h("div", { "data-tour": "chips", style: { display: "flex", gap: 6, overflowX: "auto", marginBottom: 12, paddingBottom: 2 } }, chip("all", "הכל"), chip("measure", "📏 מדידות"), chip("install", "🔧 התקנות"), chip("service", "🛠 שירות")),
     shown.length ? shown.map(i => h(InstCard, { key: (i.w ? "w" : "s") + (i.w || i.sc).id, w: i.w, sc: i.sc, workOrders, installerId, onOpen: () => i.w ? setSelected(i.w) : goService && goService() }))
       : h("div", { style: { background: "#fff", border: `1px dashed ${colors.border}`, borderRadius: 14, padding: 16, textAlign: "center", color: colors.textMuted } }, "אין כאן כלום"));
 };
@@ -5372,6 +5372,92 @@ const MyDay = ({ workOrders, serviceCalls, installerId, setSelected, goService }
         waiting.length ? h("div", { style: { color: "#fff", fontWeight: 800, fontSize: 14, margin: "8px 0" } }, "📅 מחכות לתיאום (" + waiting.length + ")") : null,
         list.map(card),
         waiting.length > 3 ? h("button", { onClick: () => setAll(!all), style: { width: "100%", border: 0, background: "rgba(255,255,255,.15)", color: "#fff", borderRadius: 10, padding: 10, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" } }, all ? "הצג פחות" : "הצג את כל " + waiting.length) : null)));
+};
+
+// ─── Guided tutorial (הדרכה): shown once per account on the first login; replay any time from the "?" button ────
+// A step = { title, text, example?, sel? (element to highlight, by [data-tour]), page? (navigate first), sidebar? }
+const TOUR_VER = "v1";
+const tourKey = acc => "bl_tour_" + TOUR_VER + "_" + (acc && acc.id);
+const tourSeen = acc => { try { return !!localStorage.getItem("bl_tours_off") || !!localStorage.getItem(tourKey(acc)); } catch (e) { return true; } };
+const tourMarkSeen = acc => { try { localStorage.setItem(tourKey(acc), new Date().toISOString()); } catch (e) {} };
+const TOURS = {
+  installer: [
+    { title: "ברוך הבא ל-Bariline 👋", text: "שתי דקות ונסביר הכל.\nאפשר להפעיל את ההדרכה שוב בכל זמן מכפתור ? שלמעלה." },
+    { page: "today", sel: '[data-tour="nav-today"]', title: "☀️ היום שלי", text: "המסך הראשי.\nלמעלה: העבודות של היום לפי שעה.\nמתחת: עבודות שמחכות שתתאם תאריך עם הלקוח.", example: "נכנסה עבודה קרובה למקום שאתה בו היום? תקפוץ הודעה \"📍 אתה היום ב…\" עם כפתור להתקשר ולתאם." },
+    { page: "today", sel: '[data-tour="card"]', title: "כרטיס עבודה", text: "הפס הצבעוני למעלה אומר מה הצעד הבא:\n📅 לתאם · 📏 למדוד · 🔧 להתקין · ⏳ בהכנה\nלמטה: 🧭 נווט (Waze) · 📞 התקשר · פתח.", example: "תגית ירוקה 🧭 = יש לך עוד עבודה באותו אזור. כדאי לתאם לאותו יום." },
+    { page: "today", sel: '[data-tour="card"] button', title: "פתח ›", text: "בתוך העבודה יש כפתור אחד גדול: הצעד הבא.\nלוחצים עליו ותמיד יודעים מה לעשות:\n📅 קבע תאריך · 📏 פתח מדידה · 📷 התחל עבודה + צלם לפני · ✅ סיים + צלם אחרי" },
+    { page: "orders", sel: '[data-tour="seg"]', title: "העבודות שלי", text: "שלוש לשוניות:\n📅 לתאם – עבודות בלי תאריך\n🗓 מתוזמן – לפי תאריך\n✓ בוצע – 30 הימים האחרונים" },
+    { page: "orders", sel: '[data-tour="chips"]', title: "סינון", text: "📏 מדידות · 🔧 התקנות · 🛠 שירות\nכדי לראות רק מה שצריך עכשיו." },
+    { page: "orders", sel: '[data-tour="nav-service"]', title: "🛠 שירות", text: "קריאות שירות: תיקונים אצל לקוחות קיימים.\nקריאה בלי מתקין אפשר לקחת." },
+    { page: "pickup", sel: '[data-tour="pk-list"]', title: "📦 איסוף מהמחסן", text: "לפני התקנה חייבים לאסוף דרך המערכת:\n1. מסמנים מה לוקחים\n2. בוחרים יום ושעה\n3. שולחים – המנהל מאשר, המחסן מכין", example: "כשמוכן תקבל וואטסאפ וברקוד. במחסן מראים את הברקוד בטלפון, סורקים, ויוצאים.\nבלי איסוף אי אפשר להתחיל עבודה." },
+    { page: "pickup", sel: '[data-tour="nav-waiting_glass"]', title: "⏳ בהכנה", text: "מקלחונים לפי מידה שמחכים לזכוכית או לפענוח.\nכשמוכן תקבל וואטסאפ, והעבודה תעבור ל\"לתאם\"." },
+    { page: "today", title: "📏 מדידה – הכי חשוב", text: "בעבודה עם 📏 לוחצים את הכפתור הגדול \"פתח טופס מדידה\".\nהטופס מוביל שלב-שלב:\n1 לקוח → 2 סוג → 3 צורה מתמונה → 4 מידות → 5 זכוכית → 6 צילום → 7 חתימה", example: "מודדים למטה, ברוטו (בלי הורדות).\nמזינים את אורך הצלע ואת הקבוע, והדלת מחושבת לבד.\nבתוך המדידה יש כפתור ? עם הסבר לכל מסך." },
+    { sel: '[data-tour="menu"]', title: "תפריט ☰", text: "התנתקות, והתקנת האפליקציה למסך הבית של הטלפון." },
+    { sel: '[data-tour="help"]', title: "זהו! 💪", text: "להפעיל את ההדרכה שוב: כפתור ? כאן למעלה.\nבהצלחה!" }
+  ],
+  warehouse: [
+    { title: "ברוך הבא 👋", text: "כאן רואים רק את מה שקשור למחסן: איסופים, החזרות, ומה נמסר.\nאפשר להפעיל את ההדרכה שוב מכפתור ? שלמעלה." },
+    { page: "wh_pickups", sel: '[data-tour="nav-wh_pickups"]', title: "📦 איסופים", text: "בקשות שהמנהל כבר אישר. כל בקשה: מי המתקין, מתי הוא רוצה להגיע, ומה הוא לוקח." },
+    { page: "wh_pickups", sel: '[data-tour="wh-req"]', title: "שלב 1: השעה", text: "המתקין ביקש שעה. אם מתאים: \"✓ השעה מתאימה\".\nלא מתאים: \"הצע שעה אחרת\". המתקין מקבל וואטסאפ ומאשר או מציע בחזרה.", example: "עד שהשעה סגורה, כפתור \"הכל מוכן\" נעול." },
+    { page: "wh_pickups", sel: '[data-tour="wh-req"]', title: "שלב 2: להכין", text: "מסמנים ✓ על כל מקלחון שמוכן. חסר משהו? מורידים את ה-✓ שלו.\nואז \"✓ הכל מוכן לאיסוף\": המתקין מקבל וואטסאפ וברקוד." },
+    { page: "wh_pickups", sel: '[data-tour="wh-scan"]', title: "שלב 3: מסירה בברקוד", text: "כשהמתקין מגיע: \"📷 סרוק ברקוד\" פותח את המצלמה. סורקים את הברקוד מהטלפון שלו, והמערכת רושמת \"נמסר\".", example: "הברקוד חד-פעמי. ברקוד שכבר נסרק מקבל אזהרה אדומה: לא למסור שוב.\nאין מצלמה? אפשר להקליד את הקוד שמתחת לברקוד." },
+    { page: "wh_returns", sel: '[data-tour="nav-wh_returns"]', title: "↩ החזרות", text: "עבודה שבוטלה אחרי שהמקלחון נאסף. כשהמקלחון חוזר למחסן: \"↩ המקלחון חזר\". המנהל מאשר." },
+    { page: "wh_log", sel: '[data-tour="nav-wh_log"]', title: "✓ נמסר", text: "כל מה שיצא מהמחסן: מי, מתי, ומה." },
+    { sel: '[data-tour="help"]', title: "זהו! 👍", text: "להפעיל את ההדרכה שוב: כפתור ? כאן למעלה." }
+  ],
+  admin: [
+    { title: "ברוך הבא למערכת 👋", text: "סיור קצר בתפריט. כל עמוד במשפט.\nאפשר להפעיל שוב מכפתור ? שלמעלה." },
+    { sidebar: true, sel: '[data-tour="nav-orders"]', title: "הזמנות עבודה", text: "כל העבודות: חיפוש, סינון לפי מתקין וחנות, ולוח חודשי עם 📏 מדידות ו-🔧 התקנות.\nלחיצה על עבודה פותחת את כל הפרטים." },
+    { sidebar: true, sel: '[data-tour="nav-pre_production"]', title: "מדידות לפני ייצור", text: "מדידות שהמתקינים שלחו. בודקים, פותחים בשרטוט, ו\"אשר מדידה\" שולח לייצור ומוריד פרזול מהמלאי.", example: "תגית \"נמדד מחוץ למערכת\" = מדף סימן שנמדד, אבל אין מדידה במערכת." },
+    { sidebar: true, sel: '[data-tour="nav-waiting_glass"]', title: "ממתין לזכוכית", text: "צירים נקיים | מודולרי.\nכשהזכוכית הגיעה: \"זכוכית מוכנה\". מודולרי: \"מוכן – העבר למתקין\". המתקין מקבל וואטסאפ." },
+    { sidebar: true, sel: '[data-tour="nav-modular"]', title: "פענוח מודולרי", text: "דגמים מהמלאי. בוחרים פריטים (אפשר חצי יחידה) ו\"אשר פענוח\" מוריד אותם מהמלאי.", example: "תעודת משלוח עם דגם מודולרי בלי מדידה מגיעה לכאן לבד." },
+    { sidebar: true, sel: '[data-tour="nav-quotes"]', title: "הצעות מחיר ממתינות", text: "הצעות ממדף שמחכות לחנות. \"תזכורת לחנות\" פותח וואטסאפ." },
+    { sidebar: true, sel: '[data-tour="nav-pickups"]', title: "איסופים מהמחסן", text: "לאישור: בקשות של מתקינים עם בדיקה אוטומטית (כפילות באדום).\nהחזרות · יציאות מהמחסן · דוח שבועי · הגדרות שעות." },
+    { sidebar: true, sel: '[data-tour="nav-inventory"]', title: "מלאי", text: "מכולות, פריטים, פריטי מדף. המלאי יורד לבד מתעודות משלוח ומפענוח." },
+    { sidebar: true, sel: '[data-tour="nav-reports"]', title: "דוחות", text: "רווחיות לכל תעודת משלוח: מחיר, עלות, רווח." },
+    { sidebar: true, sel: '[data-tour="nav-accounts"]', title: "ניהול חשבונות", text: "חשבונות למתקינים ולמחסנאי. \"📲 שלח פרטי כניסה\" שולח וואטסאפ עם סיסמה והסבר." },
+    { sel: '[data-tour="help"]', title: "זהו!", text: "להפעיל את ההדרכה שוב: כפתור ? כאן." }
+  ]
+};
+const Tour = ({ steps, onClose, onStep }) => {
+  const h = React.createElement;
+  const [i, setI] = useState(0);
+  const [rect, setRect] = useState(null);
+  const step = steps[i];
+  useEffect(() => {
+    let on = true, tries = 0;
+    if (onStep) onStep(step);
+    const find = () => {
+      if (!on) return;
+      const el = step.sel ? document.querySelector(step.sel) : null;
+      if (el && el.offsetParent !== null) {
+        el.scrollIntoView({ block: "center", inline: "nearest" });
+        setTimeout(() => { if (!on) return; const r = el.getBoundingClientRect(); setRect({ top: r.top, left: r.left, width: r.width, height: r.height }); }, 120);
+      } else if (tries++ < 10) setTimeout(find, 150); else setRect(null);
+    };
+    setRect(null);
+    setTimeout(find, step.page || step.sidebar ? 300 : 40);
+    return () => { on = false; };
+  }, [i]);
+  const last = i === steps.length - 1;
+  const pad = 6;
+  const cardH = 230, vh = window.innerHeight;
+  const below = rect && rect.top + rect.height + 12 + cardH < vh;
+  const cardStyle = rect ? (below ? { top: rect.top + rect.height + 12 } : { bottom: vh - rect.top + 12 }) : { top: "50%", transform: "translateY(-50%)" };
+  const btn = (t, f, main) => h("button", { onClick: f, style: { border: main ? 0 : `1px solid ${colors.border}`, background: main ? "#0f766e" : "#fff", color: main ? "#fff" : colors.text, borderRadius: 10, padding: "10px 16px", fontWeight: 700, fontSize: 14, cursor: "pointer", fontFamily: "inherit" } }, t);
+  return h("div", { "data-tour-overlay": "1", style: { position: "fixed", inset: 0, zIndex: 3000 } },
+    rect ? h("div", { style: { position: "fixed", top: rect.top - pad, left: rect.left - pad, width: rect.width + pad * 2, height: rect.height + pad * 2, borderRadius: 12, boxShadow: "0 0 0 9999px rgba(10,20,30,.62)", border: "3px solid #f59e0b", pointerEvents: "none", transition: "all .2s" } })
+      : h("div", { style: { position: "fixed", inset: 0, background: "rgba(10,20,30,.62)" } }),
+    h("div", { style: { position: "fixed", inset: 0 } }), // blocks clicks under the tour
+    h("div", { role: "dialog", "aria-label": step.title, style: { position: "fixed", left: "50%", transform: (cardStyle.transform || "") + " translateX(-50%)", ...cardStyle, width: "min(380px, calc(100vw - 24px))", background: "#fff", borderRadius: 16, padding: 16, boxShadow: "0 16px 40px rgba(0,0,0,.35)", direction: "rtl", color: colors.text, zIndex: 3001 } },
+      h("div", { style: { fontSize: 11.5, color: colors.textMuted, fontWeight: 700, marginBottom: 4 } }, i + 1, " / ", steps.length),
+      h("div", { style: { fontSize: 19, fontWeight: 800, marginBottom: 6 } }, step.title),
+      h("div", { style: { fontSize: 14.5, lineHeight: 1.55, whiteSpace: "pre-line" } }, step.text),
+      step.example && h("div", { style: { marginTop: 8, background: "#f0fdfa", border: "1px solid #99d5cc", borderRadius: 10, padding: "8px 10px", fontSize: 13.5, lineHeight: 1.5, whiteSpace: "pre-line" } }, h("b", { style: { color: "#0f766e" } }, "💡 "), step.example),
+      h("div", { style: { display: "flex", gap: 8, marginTop: 12, alignItems: "center" } },
+        btn(last ? "סיום ✓" : "הבא ›", () => last ? onClose() : setI(i + 1), true),
+        i > 0 && btn("‹ הקודם", () => setI(i - 1)),
+        h("button", { onClick: onClose, style: { marginRight: "auto", border: 0, background: "none", color: colors.textMuted, fontSize: 13, textDecoration: "underline", cursor: "pointer", fontFamily: "inherit" } }, "דלג"))));
 };
 
 // ─── Work Orders Page (shared admin/installer) ──────────────────────────────
@@ -14675,6 +14761,8 @@ function App() {
   const isMobile = useIsMobile();
   const [sidebarOpen, setSidebarOpen] = useState(!isMobile);
   useEffect(() => { if (currentUser && currentUser.role !== "admin") setSidebarOpen(false); }, [currentUser]);
+  // guided tutorial: first login per account (on this phone), replay from the "?" button
+  const [tourOn, setTourOn] = useState(false);
   const [workOrders, setWorkOrdersState] = useState([]);
   const [installers, setInstallersState] = useState([]);
   const [accounts, setAccountsState] = useState([]);
@@ -14802,6 +14890,7 @@ function App() {
   };
   const [serviceCalls, setServiceCallsState] = useState([]);
   const [dbReady, setDbReady] = useState(false);
+  useEffect(() => { if (!currentUser || !dbReady) return; if (!tourSeen(currentUser)) { const t = setTimeout(() => setTourOn(true), 900); return () => clearTimeout(t); } }, [currentUser, dbReady]);
   const dbReadyRef = useRef(false);
   const [dbStatus, setDbStatus] = useState("loading"); // loading | online | offline
   const [usageAlert, setUsageAlert] = useState(null);
@@ -15840,6 +15929,7 @@ function App() {
     const badgeColor = item.key === "service" ? "#ef4444" : item.key === "pre_production" ? "#f59e0b" : item.key === "waiting_glass" || item.key === "modular" ? "#8b5cf6" : "#ef4444";
     return /*#__PURE__*/React.createElement("button", {
       key: item.key,
+      "data-tour": "nav-" + item.key,
       onClick: () => {
         setPage(item.key);
         if (isMobile || shell) setSidebarOpen(false);
@@ -16041,7 +16131,8 @@ function App() {
       padding: 4,
       display: "flex"
     },
-    title: "תפריט"
+    title: "תפריט",
+    "data-tour": "menu"
   }, Icons.menu), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("h1", {
     style: {
       margin: 0,
@@ -16057,6 +16148,11 @@ function App() {
       position: "relative"
     }
   }, /*#__PURE__*/React.createElement("button", {
+    onClick: () => setTourOn(true),
+    title: "הדרכה",
+    "data-tour": "help",
+    style: { width: 30, height: 30, borderRadius: "50%", border: shell ? "1.5px solid rgba(255,255,255,.6)" : `1.5px solid ${colors.primary}`, background: shell ? "rgba(255,255,255,.14)" : colors.primaryLight, color: shell ? "#fff" : colors.primary, fontWeight: 800, fontSize: 15, cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }
+  }, "?"), /*#__PURE__*/React.createElement("button", {
     onClick: forceSaveAll,
     title: "\u05E9\u05DE\u05D5\u05E8 \u05D4\u05DB\u05DC",
     style: {
@@ -16301,7 +16397,11 @@ function App() {
         color: "white"
       }
     }, Icons.reports, " \u05D2\u05D9\u05D1\u05D5\u05D9 \u05E2\u05DB\u05E9\u05D9\u05D5"));
-  })(), renderPage()), shell && /*#__PURE__*/React.createElement("nav", {
+  })(), renderPage()), tourOn && /*#__PURE__*/React.createElement(Tour, {
+    steps: TOURS[currentUser.role] || TOURS.installer,
+    onStep: st => { if (st.page) setPage(st.page); if (st.sidebar && (isMobile || shell)) setSidebarOpen(true); },
+    onClose: () => { setTourOn(false); tourMarkSeen(currentUser); if (isMobile || shell) setSidebarOpen(false); }
+  }), shell && /*#__PURE__*/React.createElement("nav", {
     "aria-label": "תפריט",
     style: { display: "grid", gridTemplateColumns: `repeat(${navItems.length}, 1fr)`, borderTop: `1px solid ${colors.border}`, background: "#fff", paddingBottom: "env(safe-area-inset-bottom, 0px)", flexShrink: 0 }
   }, navItems.map(item => {
@@ -16309,6 +16409,7 @@ function App() {
     const on = page === item.key;
     return /*#__PURE__*/React.createElement("button", {
       key: item.key,
+      "data-tour": "nav-" + item.key,
       onClick: () => setPage(item.key),
       style: { border: 0, background: "none", fontFamily: "inherit", color: on ? "#0f766e" : colors.textLight, fontWeight: on ? 800 : 500, padding: "8px 2px 9px", display: "flex", flexDirection: "column", alignItems: "center", gap: 2, fontSize: 12, cursor: "pointer", position: "relative" }
     }, /*#__PURE__*/React.createElement("span", { style: { display: "flex", transform: "scale(1.2)", marginBottom: 2 } }, item.icon), SHORT[item.key] || item.label, n > 0 && /*#__PURE__*/React.createElement("span", { style: { position: "absolute", top: 3, left: "calc(50% - 24px)", background: item.key === "pickup" ? "#0f766e" : "#b45309", color: "#fff", borderRadius: 99, fontSize: 11, fontWeight: 800, minWidth: 18, height: 18, display: "grid", placeItems: "center", padding: "0 4px" } }, n));

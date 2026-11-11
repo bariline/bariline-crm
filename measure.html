@@ -1418,5 +1418,99 @@ body.bl-advanced #blBackWiz{display:block}
 })();
 </script>
 
+<!-- ===== Bariline add-on: tips (הדרכה) inside the simple measuring wizard — first time on every screen, replay from the ? button. Original code above is unchanged. ===== -->
+<style>
+#blTip{position:fixed;inset:0;z-index:70;display:none}
+#blTip.on{display:block}
+#blTip .hole{position:fixed;border-radius:12px;box-shadow:0 0 0 9999px rgba(10,20,30,.62);border:3px solid #f59e0b;pointer-events:none;transition:all .2s}
+#blTip .dim{position:fixed;inset:0;background:rgba(10,20,30,.62)}
+#blTip .card{position:fixed;left:50%;transform:translateX(-50%);width:min(380px,calc(100vw - 24px));background:#fff;border-radius:16px;padding:16px;box-shadow:0 16px 40px rgba(0,0,0,.35);direction:rtl;color:var(--ink);font-family:"Heebo",Arial,sans-serif}
+#blTip .n{font-size:11.5px;color:var(--muted);font-weight:700}
+#blTip h3{font-size:19px;font-weight:800;margin:4px 0 6px}
+#blTip p{font-size:14.5px;line-height:1.55;margin:0;white-space:pre-line}
+#blTip .ex{margin-top:8px;background:#f0fdfa;border:1px solid #99d5cc;border-radius:10px;padding:8px 10px;font-size:13.5px;line-height:1.5;white-space:pre-line}
+#blTip .ex b{color:#0f766e}
+#blTip .btns{display:flex;gap:8px;margin-top:12px;align-items:center}
+#blTip .btns button{font:inherit;border-radius:10px;padding:10px 16px;font-weight:700;font-size:14px;cursor:pointer;border:1px solid var(--line);background:#fff;color:var(--ink)}
+#blTip .btns button.main{background:#0f766e;color:#fff;border:0}
+#blTip .btns .skip{margin-right:auto;border:0;background:none;color:var(--muted);font-size:13px;text-decoration:underline;padding:0}
+#blWHelp{width:32px;height:32px;border-radius:50%;border:1.5px solid rgba(255,255,255,.6);background:rgba(255,255,255,.14);color:#fff;font-weight:800;font-size:16px;padding:0}
+</style>
+<div id="blTip"><div class="dim"></div><div class="hole" hidden></div><div class="card"><div class="n"></div><h3></h3><p></p><div class="ex" hidden></div><div class="btns"><button class="main" type="button"></button><button class="back" type="button">‹ הקודם</button><button class="skip" type="button">דלג על ההדרכה</button></div></div></div>
+<script>
+(function(){
+  if (!window.blWizard) return;
+  const W = window.blWizard.state;
+  const B = id => document.getElementById(id);
+  const TIPS = {
+    intro: [{ title: 'ברוכים הבאים למדידה הפשוטה 📏', text: '7 מסכים, שאלה אחת בכל מסך:\n1 לקוח → 2 סוג → 3 צורה → 4 מידות → 5 זכוכית → 6 צילום → 7 חתימה\n\nבכל מסך יש כפתור ? עם הסבר.', ex: '"מצב מתקדם" (למעלה) פותח את הטופס המלא, למקרים מיוחדים.' }],
+    cust: [{ sel: '#bw_c', title: 'זה הלקוח הנכון?', text: 'הפרטים הגיעו מהעבודה במערכת. בודקים שם וטלפון, ולוחצים "הבא".' }],
+    sys: [{ sel: '[data-sys="profile"]', title: 'פרופיל או צירים נקיים?', text: 'פרופיל = דגם מודולרי מהמלאי: גובה 185 וזכוכית 6 מ״מ קבועים, הקבוע נבחר מרשימת מידות.\nצירים נקיים = לפי מידה, מהמפעל.', ex: 'כשבעבודה כבר כתוב הסוג, המסך הזה מדלג לבד.' }],
+    shape: [{ sel: '.choice[data-model]', title: 'בוחרים צורה מתמונה', text: 'לוחצים על התמונה שדומה למקלחון של הלקוח, כפי שרואים אותו מבחוץ.\nהכותרת = הצורה (למשל "קבוע + דלת"), והשם הקטן = הדגם.', ex: 'הדגם שרשום בעבודה מופיע ראשון עם ✓.\nבחרת דגם אחר? תתבקש לכתוב למה, וזה מגיע למשרד.' }],
+    meas: [
+      { sel: '#bw_draw', title: 'השרטוט מראה מה מודדים', text: 'החלק שאתה מזין עכשיו נצבע בצהוב.\nמודדים למטה, ברוטו, בלי הורדות.' },
+      { sel: '[data-tot]', title: 'אורך הצלע כולו', text: 'מקיר לקיר (בפינתי: מהקיר עד הפינה), למטה.', ex: 'דוגמה: 120' },
+      { sel: 'select[data-el], input[data-el]', title: 'הקבוע', text: 'רוחב הקבוע. בפרופיל בוחרים מרשימת המידות שיש במלאי.', ex: 'דוגמה: צלע 120, קבוע 40 → הדלת מחושבת לבד: 80' },
+      { sel: '[data-calc]', title: '✓ מחושב לבד', text: 'את הדלת לא מקלידים. היא יוצאת מהצלע פחות הקבוע.' },
+      { sel: '[data-hinge]', title: 'צד הציר', text: 'על איזה צד הדלת נתלית.', ex: 'באלסקה זה גם קובע: פתיחה מהצד / מהאמצע.' },
+      { sel: '[data-sidedone]', title: 'פינתי: צלע-צלע', text: 'כשהצלע מלאה לוחצים "✓ סיים צלע". היא נסגרת לשורה, והצלע הבאה נפתחת ונצבעת בשרטוט.', ex: 'צריך לתקן צלע סגורה? לוחצים עליה.' },
+      { sel: '[data-devq]', title: 'סטייה בקיר – חובה', text: 'בצירים נקיים מודדים כל קיר למעלה ולמטה.\nאותו דבר? "✓ הקירות ישרים".\nיש הפרש? "⚠ יש סטייה" ורושמים רק את ההפרש.', ex: 'למטה 80, למעלה 80.4 → סטייה 0.4, "למעלה רחב יותר"' },
+      { sel: '#bw_mirror', title: 'הפוך צד', text: 'הקבוע בצד השני מהתמונה? "הפוך צד" עושה תמונת מראה.' }
+    ],
+    glass: [{ sel: '#bw_chg', title: 'זכוכית ופרזול', text: 'מולא מההזמנה. משנים רק אם הלקוח ביקש אחרת ("שינוי").', ex: 'פרופיל: שחור – רק זכוכית שקופה. ניקל – שקופה / גרניט / פסים.' }],
+    photo: [{ sel: '.cam', title: 'צילום והערות', text: 'תמונה אחת של המקום עוזרת למשרד מאוד.\nבהערות: קיר עקום, אין סף, אריח בולט…' }],
+    sign: [{ sel: '#bw_sig', title: 'חתימה ושליחה', text: 'הלקוח קורא את התנאים וחותם באצבע.\nלמטה: רשימה של מה שחסר.\n"שלח למשרד" נפתח רק אחרי החתימה.', ex: 'עוד מקלחון באותו בית? "+ מקלחון נוסף".\nהלקוח מתלבט בין שני דגמים? "+ אופציה ב׳".' }]
+  };
+  const KEY = 'bl_wiz_tips_v1';
+  const off = () => { try { return !!localStorage.getItem('bl_tips_off'); } catch (e) { return true; } };
+  const seen = () => { try { return JSON.parse(localStorage.getItem(KEY) || '{}'); } catch (e) { return {}; } };
+  const mark = k => { try { const s = seen(); s[k] = 1; localStorage.setItem(KEY, JSON.stringify(s)); } catch (e) {} };
+  const tip = B('blTip'), hole = tip.querySelector('.hole'), card = tip.querySelector('.card');
+  let list = [], i = 0, cur = null;
+  const visible = el => el && el.offsetParent !== null && el.getBoundingClientRect().height > 0;
+  function show(k, force) {
+    if (!force && (off() || seen()[k])) return;
+    const all = TIPS[k] || [];
+    list = all.filter(t => !t.sel || visible(document.querySelector(t.sel)));
+    if (!list.length) { mark(k); return; }
+    cur = k; i = 0; tip.classList.add('on'); paint();
+  }
+  function paint() {
+    const t = list[i]; const el = t.sel ? document.querySelector(t.sel) : null;
+    tip.querySelector('.n').textContent = (i + 1) + ' / ' + list.length;
+    tip.querySelector('h3').textContent = t.title; tip.querySelector('p').textContent = t.text;
+    const ex = tip.querySelector('.ex'); ex.hidden = !t.ex; ex.innerHTML = t.ex ? '<b>💡 </b>' + t.ex.replace(/&/g, '&amp;').replace(/</g, '&lt;') : '';
+    tip.querySelector('.main').textContent = i === list.length - 1 ? 'הבנתי ✓' : 'הבא ›';
+    tip.querySelector('.back').hidden = i === 0;
+    card.style.top = card.style.bottom = ''; card.style.transform = 'translateX(-50%)';
+    if (el) {
+      el.scrollIntoView({ block: 'center' });
+      setTimeout(() => {
+        const r = el.getBoundingClientRect(), p = 6;
+        hole.hidden = false; hole.style.top = (r.top - p) + 'px'; hole.style.left = (r.left - p) + 'px'; hole.style.width = (r.width + 2 * p) + 'px'; hole.style.height = (r.height + 2 * p) + 'px';
+        const below = r.bottom + 12 + 240 < window.innerHeight;
+        if (below) card.style.top = (r.bottom + 12) + 'px'; else card.style.bottom = (window.innerHeight - r.top + 12) + 'px';
+      }, 80);
+    } else { hole.hidden = true; card.style.top = '50%'; card.style.transform = 'translate(-50%,-50%)'; }
+  }
+  function close() { tip.classList.remove('on'); if (cur) mark(cur); if (cur === 'intro') { cur = null; setTimeout(() => show(W.step), 150); return; } cur = null; }
+  tip.querySelector('.main').onclick = () => { if (i < list.length - 1) { i++; paint(); } else close(); };
+  tip.querySelector('.back').onclick = () => { if (i > 0) { i--; paint(); } };
+  tip.querySelector('.skip').onclick = () => { Object.keys(TIPS).forEach(mark); tip.classList.remove('on'); cur = null; };
+  // "?" in the wizard header: replay the tips of the current screen
+  const help = document.createElement('button'); help.id = 'blWHelp'; help.type = 'button'; help.textContent = '?'; help.title = 'הדרכה';
+  help.onclick = () => show(W.step, true);
+  const row = document.querySelector('#blW .wtop .row'); if (row) row.insertBefore(help, row.firstChild);
+  // show the tips of a screen the first time it appears
+  let lastStep = null;
+  new MutationObserver(() => {
+    if (!document.body.classList.contains('bl-wiz')) return;
+    if (W.step === lastStep) return;
+    lastStep = W.step;
+    setTimeout(() => { if (W.step !== lastStep) return; if (!seen().intro && !off()) show('intro'); else show(W.step); }, 350);
+  }).observe(B('blWB'), { childList: true });
+  window.addEventListener('resize', () => { if (tip.classList.contains('on')) paint(); });
+})();
+</script>
 </body>
 </html>
