@@ -150,7 +150,7 @@ const FIREBASE_CONFIG = {
   appId: "1:1042161550667:web:61a07d439a34c4705b94ce"
 };
 
-const APP_VERSION = "2026-11-11-tutorial";
+const APP_VERSION = "2026-11-11-tutorial-2";
 // ─── Password hashing — passwords are never stored in plain text ────
 async function hashPassword(accountId, pw) {
   const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode("bariline-v1|" + String(accountId) + "|" + String(pw || "")));
@@ -5391,8 +5391,8 @@ const TOURS = {
     { page: "orders", sel: '[data-tour="nav-service"]', title: "🛠 שירות", text: "קריאות שירות: תיקונים אצל לקוחות קיימים.\nקריאה בלי מתקין אפשר לקחת." },
     { page: "pickup", sel: '[data-tour="pk-list"]', title: "📦 איסוף מהמחסן", text: "לפני התקנה חייבים לאסוף דרך המערכת:\n1. מסמנים מה לוקחים\n2. בוחרים יום ושעה\n3. שולחים – המנהל מאשר, המחסן מכין", example: "כשמוכן תקבל וואטסאפ וברקוד. במחסן מראים את הברקוד בטלפון, סורקים, ויוצאים.\nבלי איסוף אי אפשר להתחיל עבודה." },
     { page: "pickup", sel: '[data-tour="nav-waiting_glass"]', title: "⏳ בהכנה", text: "מקלחונים לפי מידה שמחכים לזכוכית או לפענוח.\nכשמוכן תקבל וואטסאפ, והעבודה תעבור ל\"לתאם\"." },
-    { page: "today", title: "📏 מדידה – הכי חשוב", text: "בעבודה עם 📏 לוחצים את הכפתור הגדול \"פתח טופס מדידה\".\nהטופס מוביל שלב-שלב:\n1 לקוח → 2 סוג → 3 צורה מתמונה → 4 מידות → 5 זכוכית → 6 צילום → 7 חתימה", example: "מודדים למטה, ברוטו (בלי הורדות).\nמזינים את אורך הצלע ואת הקבוע, והדלת מחושבת לבד.\nבתוך המדידה יש כפתור ? עם הסבר לכל מסך." },
-    { sel: '[data-tour="menu"]', title: "תפריט ☰", text: "התנתקות, והתקנת האפליקציה למסך הבית של הטלפון." },
+    { page: "today", title: "📏 מדידה – הכי חשוב", text: "בעבודה עם 📏 לוחצים את הכפתור הגדול \"פתח טופס מדידה\".\nהטופס מוביל שלב-שלב:\n1 לקוח → 2 סוג → 3 צורה מתמונה → 4 מידות → 5 זכוכית → 6 צילום → 7 חתימה", example: "מודדים למטה, ברוטו (בלי הורדות).\nמזינים את אורך הצלע ואת הקבוע, והדלת מחושבת לבד.", action: { label: "▶ הדגמה חיה של מדידה", key: "demo-measure" } },
+    { sel: '[data-tour="logout"]', title: "התנתקות", text: "כאן מתנתקים. לידו: \"⬆ למסך הבית\" שומר את האפליקציה כאייקון בטלפון." },
     { sel: '[data-tour="help"]', title: "זהו! 💪", text: "להפעיל את ההדרכה שוב: כפתור ? כאן למעלה.\nבהצלחה!" }
   ],
   warehouse: [
@@ -5419,7 +5419,7 @@ const TOURS = {
     { sel: '[data-tour="help"]', title: "זהו!", text: "להפעיל את ההדרכה שוב: כפתור ? כאן." }
   ]
 };
-const Tour = ({ steps, onClose, onStep }) => {
+const Tour = ({ steps, onClose, onStep, onAction }) => {
   const h = React.createElement;
   const [i, setI] = useState(0);
   const [rect, setRect] = useState(null);
@@ -5456,6 +5456,7 @@ const Tour = ({ steps, onClose, onStep }) => {
       step.example && h("div", { style: { marginTop: 8, background: "#f0fdfa", border: "1px solid #99d5cc", borderRadius: 10, padding: "8px 10px", fontSize: 13.5, lineHeight: 1.5, whiteSpace: "pre-line" } }, h("b", { style: { color: "#0f766e" } }, "💡 "), step.example),
       h("div", { style: { display: "flex", gap: 8, marginTop: 12, alignItems: "center" } },
         btn(last ? "סיום ✓" : "הבא ›", () => last ? onClose() : setI(i + 1), true),
+        step.action && onAction && h("button", { onClick: () => onAction(step.action.key), style: { border: 0, background: "#6d28d9", color: "#fff", borderRadius: 10, padding: "10px 14px", fontWeight: 800, fontSize: 14, cursor: "pointer", fontFamily: "inherit" } }, step.action.label),
         i > 0 && btn("‹ הקודם", () => setI(i - 1)),
         h("button", { onClick: onClose, style: { marginRight: "auto", border: 0, background: "none", color: colors.textMuted, fontSize: 13, textDecoration: "underline", cursor: "pointer", fontFamily: "inherit" } }, "דלג"))));
 };
@@ -14763,6 +14764,9 @@ function App() {
   useEffect(() => { if (currentUser && currentUser.role !== "admin") setSidebarOpen(false); }, [currentUser]);
   // guided tutorial: first login per account (on this phone), replay from the "?" button
   const [tourOn, setTourOn] = useState(false);
+  const [demoMeasure, setDemoMeasure] = useState(false);
+  useEffect(() => { const f = e => { if (e.origin === window.location.origin && e.data && e.data.type === "bariline:demo-done") setDemoMeasure(false); }; window.addEventListener("message", f); return () => window.removeEventListener("message", f); }, []);
+  const demoMeasureSrc = () => "measure.html#" + new URLSearchParams({ embed: "1", init: JSON.stringify({ no: "הדגמה", customer: "לקוח לדוגמה", phone: "050-0000000", address: "הרצל 5, חדרה", store: "רון קרמיקה", installer: currentUser && currentUser.name || "", product: "מקלחון אוסטין שקוף 8 מ\"מ ניקל", demo: 1, fixedSizes: FIXED_SIDE_SIZES }) }).toString();
   const [workOrders, setWorkOrdersState] = useState([]);
   const [installers, setInstallersState] = useState([]);
   const [accounts, setAccountsState] = useState([]);
@@ -15843,7 +15847,7 @@ function App() {
       direction: "rtl",
       paddingTop: "env(safe-area-inset-top, 0px)"
     }
-  }, (isMobile || shell) && sidebarOpen && /*#__PURE__*/React.createElement("div", {
+  }, isMobile && !shell && sidebarOpen && /*#__PURE__*/React.createElement("div", {
     onClick: () => setSidebarOpen(false),
     style: {
       position: "fixed",
@@ -15851,7 +15855,7 @@ function App() {
       background: "rgba(0,0,0,0.5)",
       zIndex: 998
     }
-  }), /*#__PURE__*/React.createElement("div", {
+  }), !shell && /*#__PURE__*/React.createElement("div", {
     style: {
       width: sidebarOpen ? 220 : 0,
       background: colors.sidebar,
@@ -16132,7 +16136,8 @@ function App() {
       display: "flex"
     },
     title: "תפריט",
-    "data-tour": "menu"
+    "data-tour": "menu",
+    hidden: shell
   }, Icons.menu), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("h1", {
     style: {
       margin: 0,
@@ -16147,7 +16152,16 @@ function App() {
       gap: 6,
       position: "relative"
     }
-  }, /*#__PURE__*/React.createElement("button", {
+  }, shell && !isStandalone && (installPrompt || isIos) && /*#__PURE__*/React.createElement("button", {
+    onClick: handleInstallClick,
+    title: "שמור במסך הבית",
+    style: { height: 30, borderRadius: 15, border: "1.5px solid rgba(255,255,255,.6)", background: "rgba(255,255,255,.14)", color: "#fff", fontWeight: 700, fontSize: 12, cursor: "pointer", fontFamily: "inherit", padding: "0 10px", whiteSpace: "nowrap" }
+  }, "⬆ למסך הבית"), shell && /*#__PURE__*/React.createElement("button", {
+    onClick: handleLogout,
+    title: "התנתק",
+    "data-tour": "logout",
+    style: { width: 30, height: 30, borderRadius: "50%", border: "1.5px solid rgba(255,255,255,.6)", background: "rgba(255,255,255,.14)", color: "#fff", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }
+  }, Icons.logout), /*#__PURE__*/React.createElement("button", {
     onClick: () => setTourOn(true),
     title: "הדרכה",
     "data-tour": "help",
@@ -16399,9 +16413,14 @@ function App() {
     }, Icons.reports, " \u05D2\u05D9\u05D1\u05D5\u05D9 \u05E2\u05DB\u05E9\u05D9\u05D5"));
   })(), renderPage()), tourOn && /*#__PURE__*/React.createElement(Tour, {
     steps: TOURS[currentUser.role] || TOURS.installer,
-    onStep: st => { if (st.page) setPage(st.page); if (st.sidebar && (isMobile || shell)) setSidebarOpen(true); },
-    onClose: () => { setTourOn(false); tourMarkSeen(currentUser); if (isMobile || shell) setSidebarOpen(false); }
-  }), shell && /*#__PURE__*/React.createElement("nav", {
+    onStep: st => { if (st.page) setPage(st.page); if (st.sidebar && isMobile && !shell) setSidebarOpen(true); },
+    onAction: key => { if (key === "demo-measure") { setTourOn(false); tourMarkSeen(currentUser); setDemoMeasure(true); } },
+    onClose: () => { setTourOn(false); tourMarkSeen(currentUser); if (isMobile && !shell) setSidebarOpen(false); }
+  }), demoMeasure && ReactDOM.createPortal(/*#__PURE__*/React.createElement("div", { "data-demo-measure": "1", style: { position: "fixed", inset: 0, zIndex: 2500, background: "#fff", display: "flex", flexDirection: "column", paddingTop: "env(safe-area-inset-top)" } },
+    /*#__PURE__*/React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 12px", background: "#6d28d9", color: "#fff" } },
+      /*#__PURE__*/React.createElement("b", null, "▶ הדגמה חיה – מדידת אוסטין (צירים נקיים) · שום דבר לא נשמר"),
+      /*#__PURE__*/React.createElement("button", { onClick: () => setDemoMeasure(false), style: { border: 0, background: "rgba(255,255,255,.2)", color: "#fff", borderRadius: 8, padding: "6px 10px", fontWeight: 700, cursor: "pointer", fontFamily: "inherit" } }, "✕ סגור")),
+    /*#__PURE__*/React.createElement("iframe", { src: demoMeasureSrc(), title: "demo", style: { flex: 1, border: 0, width: "100%" } })), document.body), shell && /*#__PURE__*/React.createElement("nav", {
     "aria-label": "תפריט",
     style: { display: "grid", gridTemplateColumns: `repeat(${navItems.length}, 1fr)`, borderTop: `1px solid ${colors.border}`, background: "#fff", paddingBottom: "env(safe-area-inset-bottom, 0px)", flexShrink: 0 }
   }, navItems.map(item => {

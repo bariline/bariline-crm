@@ -1461,6 +1461,28 @@ body.bl-advanced #blBackWiz{display:block}
     photo: [{ sel: '.cam', title: 'צילום והערות', text: 'תמונה אחת של המקום עוזרת למשרד מאוד.\nבהערות: קיר עקום, אין סף, אריח בולט…' }],
     sign: [{ sel: '#bw_sig', title: 'חתימה ושליחה', text: 'הלקוח קורא את התנאים וחותם באצבע.\nלמטה: רשימה של מה שחסר.\n"שלח למשרד" נפתח רק אחרי החתימה.', ex: 'עוד מקלחון באותו בית? "+ מקלחון נוסף".\nהלקוח מתלבט בין שני דגמים? "+ אופציה ב׳".' }]
   };
+  // ── live demo (opened from the CRM tutorial with init.demo): the form is filled step by step while explaining ──
+  let DEMO = false; try { DEMO = !!JSON.parse(new URLSearchParams(location.hash.slice(1)).get('init') || '{}').demo; } catch (e) {}
+  const typeIn = (sel, v) => { const el = document.querySelector(sel); if (!el) return; el.focus(); el.value = v; el.dispatchEvent(new Event(el.tagName === 'SELECT' ? 'change' : 'input', { bubbles: true })); };
+  const click = sel => { const el = document.querySelector(sel); if (el) el.click(); };
+  const next = () => click('#bw_next');
+  const DEMO_STEPS = [
+    { title: '▶ הדגמה חיה', text: 'נמדוד ביחד מקלחון אוסטין (צירים נקיים, פינתי: קבוע + דלת בכל צד).\nההדגמה ממלאת בשבילך. אתה רק קורא ולוחץ "הבא".', ex: 'שום דבר לא נשמר. בסוף: "סיים הדגמה".' },
+    { sel: '#bw_c', title: '1. הלקוח', text: 'השם, הטלפון והכתובת הגיעו מהעבודה. רק בודקים.', do: next },
+    { sel: '.choice[data-model]', title: '2. הצורה', text: 'הדגם שרשום בעבודה (אוסטין) כבר מסומן ראשון עם ✓.\nמקלחון אחר אצל הלקוח? לוחצים על תמונה אחרת, וכותבים למה.', do: next },
+    { sel: '#bw_draw', title: '3. השרטוט', text: 'הצלע שמודדים עכשיו צבועה בצהוב.\nמודדים למטה, ברוטו, בלי הורדות.' },
+    { sel: '[data-tot="0"]', title: 'צלע שמאל: אורך הצלע כולו', text: 'מהקיר עד הפינה, למטה.\nבהדגמה נזין 120.', do: () => typeIn('[data-tot="0"]', 120) },
+    { sel: 'select[data-el^="0:"], input[data-el^="0:"]', title: 'צלע שמאל: הקבוע', text: 'רוחב הקבוע. נזין 40.', do: () => { const el = document.querySelector('select[data-el^="0:"], input[data-el^="0:"]'); if (el) typeIn('[data-el="' + el.dataset.el + '"]', 40); } },
+    { sel: '[data-calc]', title: 'הדלת חושבה לבד', text: '120 − 40 = 80. את הדלת לא מקלידים.' },
+    { sel: '[data-sidedone="0"]', title: 'סיים צלע', text: 'הצלע מלאה. "✓ סיים צלע" סוגר אותה, והצלע הבאה נפתחת ונצבעת בשרטוט.', do: () => click('[data-sidedone="0"]') },
+    { sel: '[data-tot="1"]', title: 'צלע ימין', text: 'אותו דבר: אורך הצלע 100, קבוע 30 → דלת 70.', do: () => { typeIn('[data-tot="1"]', 100); const el = document.querySelector('select[data-el^="1:"], input[data-el^="1:"]'); if (el) typeIn('[data-el="' + el.dataset.el + '"]', 30); } },
+    { sel: '[data-devq="straight"]', title: 'סטייה בקיר – חובה', text: 'מודדים כל קיר למעלה ולמטה.\nאותו דבר → "הקירות ישרים". יש הפרש → "יש סטייה" ורושמים רק את ההפרש (למשל 0.4).\nבהדגמה: ישרים.', do: () => click('[data-devq="straight"]') },
+    { sel: '#bw_next', title: 'המידות מלאות', text: 'כל הצלעות ✓, הקירות נבדקו. ממשיכים.', do: next },
+    { sel: '#bw_chg', title: '4. זכוכית ופרזול', text: 'מולא מההזמנה: שקופה, 8 מ״מ, ניקל. משנים רק אם הלקוח ביקש אחרת.', do: next },
+    { sel: '.cam', title: '5. צילום והערות', text: 'תמונה אחת של המקום, והערות כמו "אין סף" או "קיר עקום".', do: next },
+    { sel: '#bw_sig', title: '6. חתימה ושליחה', text: 'הלקוח קורא את התנאים וחותם באצבע.\nלמטה: רשימה של מה שחסר. "שלח למשרד" נפתח רק אחרי החתימה.', ex: 'עוד מקלחון באותו בית? "+ מקלחון נוסף".' },
+    { title: 'זהו! 💪', text: 'ככה נראית מדידה מלאה.\nבמדידה אמיתית, בכל מסך יש כפתור ? עם הסבר.', end: true }
+  ];
   const KEY = 'bl_wiz_tips_v1';
   const off = () => { try { return !!localStorage.getItem('bl_tips_off'); } catch (e) { return true; } };
   const seen = () => { try { return JSON.parse(localStorage.getItem(KEY) || '{}'); } catch (e) { return {}; } };
@@ -1480,7 +1502,7 @@ body.bl-advanced #blBackWiz{display:block}
     tip.querySelector('.n').textContent = (i + 1) + ' / ' + list.length;
     tip.querySelector('h3').textContent = t.title; tip.querySelector('p').textContent = t.text;
     const ex = tip.querySelector('.ex'); ex.hidden = !t.ex; ex.innerHTML = t.ex ? '<b>💡 </b>' + t.ex.replace(/&/g, '&amp;').replace(/</g, '&lt;') : '';
-    tip.querySelector('.main').textContent = i === list.length - 1 ? 'הבנתי ✓' : 'הבא ›';
+    tip.querySelector('.main').textContent = DEMO ? (t.end ? 'סיים הדגמה ✓' : 'הבא ›') : (i === list.length - 1 ? 'הבנתי ✓' : 'הבא ›');
     tip.querySelector('.back').hidden = i === 0;
     card.style.top = card.style.bottom = ''; card.style.transform = 'translateX(-50%)';
     if (el) {
@@ -1494,21 +1516,34 @@ body.bl-advanced #blBackWiz{display:block}
     } else { hole.hidden = true; card.style.top = '50%'; card.style.transform = 'translate(-50%,-50%)'; }
   }
   function close() { tip.classList.remove('on'); if (cur) mark(cur); if (cur === 'intro') { cur = null; setTimeout(() => show(W.step), 150); return; } cur = null; }
-  tip.querySelector('.main').onclick = () => { if (i < list.length - 1) { i++; paint(); } else close(); };
+  tip.querySelector('.main').onclick = () => {
+    if (DEMO) {
+      const t = list[i];
+      if (t.end || i === list.length - 1) { try { window.parent.postMessage({ type: 'bariline:demo-done' }, location.origin); } catch (e) {} tip.classList.remove('on'); return; }
+      tip.classList.remove('on');
+      if (t.do) t.do();
+      setTimeout(() => { i++; while (i < list.length - 1 && list[i].sel && !visible(document.querySelector(list[i].sel))) i++; tip.classList.add('on'); paint(); }, t.do ? 700 : 120);
+      return;
+    }
+    if (i < list.length - 1) { i++; paint(); } else close(); };
   tip.querySelector('.back').onclick = () => { if (i > 0) { i--; paint(); } };
-  tip.querySelector('.skip').onclick = () => { Object.keys(TIPS).forEach(mark); tip.classList.remove('on'); cur = null; };
+  tip.querySelector('.skip').onclick = () => { if (DEMO) { try { window.parent.postMessage({ type: 'bariline:demo-done' }, location.origin); } catch (e) {} tip.classList.remove('on'); return; } Object.keys(TIPS).forEach(mark); tip.classList.remove('on'); cur = null; };
+  if (DEMO) { tip.querySelector('.skip').textContent = 'סיים הדגמה'; tip.querySelector('.back').style.display = 'none'; }
   // "?" in the wizard header: replay the tips of the current screen
   const help = document.createElement('button'); help.id = 'blWHelp'; help.type = 'button'; help.textContent = '?'; help.title = 'הדרכה';
   help.onclick = () => show(W.step, true);
   const row = document.querySelector('#blW .wtop .row'); if (row) row.insertBefore(help, row.firstChild);
   // show the tips of a screen the first time it appears
   let lastStep = null;
+  let demoStarted = false;
   new MutationObserver(() => {
     if (!document.body.classList.contains('bl-wiz')) return;
+    if (DEMO) { if (demoStarted) return; demoStarted = true; setTimeout(() => { list = DEMO_STEPS; i = 0; cur = null; tip.classList.add('on'); paint(); }, 500); return; }
     if (W.step === lastStep) return;
     lastStep = W.step;
     setTimeout(() => { if (W.step !== lastStep) return; if (!seen().intro && !off()) show('intro'); else show(W.step); }, 350);
   }).observe(B('blWB'), { childList: true });
+  if (DEMO) { help.onclick = () => { list = DEMO_STEPS; i = 0; tip.classList.add('on'); paint(); }; const sv = document.getElementById('blSave'); if (sv) sv.disabled = true; }
   window.addEventListener('resize', () => { if (tip.classList.contains('on')) paint(); });
 })();
 </script>
