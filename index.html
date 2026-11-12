@@ -150,7 +150,7 @@ const FIREBASE_CONFIG = {
   appId: "1:1042161550667:web:61a07d439a34c4705b94ce"
 };
 
-const APP_VERSION = "2026-11-12-schedule-first";
+const APP_VERSION = "2026-11-12-cleanup";
 // ─── Password hashing — passwords are never stored in plain text ────
 async function hashPassword(accountId, pw) {
   const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode("bariline-v1|" + String(accountId) + "|" + String(pw || "")));
@@ -478,7 +478,7 @@ const drawingItemIsModular = it => textIsModular(it && it.snapshot && it.snapsho
 // Modular flow: measured → (office makes the quote in Madaf) → delivery note → פענוח (אשר מדידה + פענוח there)
 const hasMadafDelivery = w => !!(w && (w.madafDeliveryNo || w.madafDelivery && w.madafDelivery.no));
 // a mixed home is decoded right after the measurement (so the office can quote it); stock leaves only after the delivery note
-const mixedPreQuote = w => isMixedJob(w) && !w.modularPlanned && !hasMadafDelivery(w) && !w.measurementConfirmed && !w.modularReady;
+const mixedPreQuote = w => !!w && w.productType === "custom" && isModularJob(w) && !w.modularPlanned && !hasMadafDelivery(w) && !w.measurementConfirmed && !w.modularReady && !w.madafQuote && !w.modularDecode;
 const isWaitingModular = w => w.productType === "custom" && w.status !== "completed" && w.measured && !w.glassReady && !w.modularDecode && isModularJob(w) && (w.measurementConfirmed || hasMadafDelivery(w) || w.modularReady || mixedPreQuote(w));
 // "מדידות לפני ייצור": a modular job leaves it as soon as there is a quote / delivery note (or the admin sent it on)
 // "ממתין לזכוכית": custom jobs sent to production. For the admin a modular job joins only after its פענוח
@@ -3298,11 +3298,13 @@ const DashboardPage = ({
   setPage
 }) => {
   const isMobile = useIsMobile();
-  const today = "2026-04-14";
-  const todayJobs = workOrders.filter(w => w.scheduledDate === today);
+  const today = todayISO();
+  const month = today.slice(0, 7);
+  const todayJobs = workOrders.filter(w => w.scheduledDate === today && !["completed", "cancelled", "rejected"].includes(w.status));
   const active = workOrders.filter(w => ["in-progress", "scheduled", "pending"].includes(w.status));
-  const completed = workOrders.filter(w => w.status === "completed");
-  const revenue = completed.reduce((s, w) => s + w.amount, 0);
+  const completed = workOrders.filter(w => w.status === "completed" && String(w.completedDate || "").startsWith(month));
+  // revenue = delivery notes from Madaf this month (before VAT)
+  const revenue = workOrders.reduce((s, w) => { const d = w.madafDelivery; if (!d || !d.no) return s; const dd = madafDate(d.date); return dd.startsWith(month) ? s + (Number(d.preVat) || 0) : s; }, 0);
   const availableInstallers = installers.filter(i => i.status === "available");
   const [stockItems, setStockItems] = useState([]);
   useEffect(() => {
@@ -3316,52 +3318,14 @@ const DashboardPage = ({
     stock: Number(i.stock) || 0,
     minStock: Number(i.minStock) || 0
   }));
-  const recentActivity = [{
-    icon: Icons.check,
-    color: colors.success,
-    text: "WO-2026-001 הושלם — יוסי פרץ",
-    time: "לפני שעתיים"
-  }, {
-    icon: Icons.tool,
-    color: colors.primary,
-    text: "WO-2026-002 התחיל — משה לוי",
-    time: "לפני 3 שעות"
-  }, {
-    icon: Icons.signature,
-    color: colors.purple,
-    text: "חתימה נאספה — שרה גולדשטיין",
-    time: "לפני שעתיים"
-  }, {
-    icon: Icons.camera,
-    color: "#0ea5e9",
-    text: "תמונות לפני הועלו — WO-2026-006",
-    time: "לפני 4 שעות"
-  }, {
-    icon: Icons.warning,
-    color: colors.warning,
-    text: "התראת מלאי נמוך — ציר פיבוט (שחור מט)",
-    time: "לפני 5 שעות"
-  }];
-  const monthlyData = [{
-    month: "נוב׳",
-    jobs: 18
-  }, {
-    month: "דצמ׳",
-    jobs: 14
-  }, {
-    month: "ינו׳",
-    jobs: 22
-  }, {
-    month: "פבר׳",
-    jobs: 19
-  }, {
-    month: "מרץ",
-    jobs: 25
-  }, {
-    month: "אפר׳",
-    jobs: 12
-  }];
-  const maxJobs = Math.max(...monthlyData.map(d => d.jobs));
+  // latest events from the jobs' own logs
+  const ACT = { measured: ["📏 מדידה בוצעה", colors.purple], measurement_confirmed: ["מדידה אושרה", colors.success], glass_ready: ["זכוכית מוכנה", colors.success], assigned: ["תואם מועד", colors.primary], rematch_assigned: ["תואם מועד", colors.primary], work_started: ["התחיל עבודה", colors.primary], started: ["התחיל עבודה", colors.primary], completed: ["הושלמה", colors.success], admin_completed: ["סומן כבוצע", colors.success], glass_rework: ["🔧 זכוכית לתיקון", colors.danger], reject_requested: ["בקשת ביטול", colors.danger], reject_approved: ["בוטלה", colors.danger], drawing_saved: ["שרטוט נשמר", colors.purple], problem_reported: ["דווחה בעיה", colors.warning] };
+  const recentActivity = workOrders.flatMap(w => (Array.isArray(w.activityLog) ? w.activityLog : []).map(l => ({ w, l })))
+    .filter(x => x.l && x.l.date).sort((x, y) => String(y.l.date + (y.l.time || "")).localeCompare(String(x.l.date + (x.l.time || "")))).slice(0, 8)
+    .map(({ w, l }) => { const a = ACT[l.action]; return { icon: Icons.check, color: a ? a[1] : colors.textMuted, text: (a ? a[0] : String(l.action || "").slice(0, 60)) + " — " + (w.customerName || w.id) + (l.by ? " (" + l.by + ")" : ""), time: l.date + (l.time ? " " + l.time : "") }; });
+  const MONTHS = ["ינו׳", "פבר׳", "מרץ", "אפר׳", "מאי", "יוני", "יולי", "אוג׳", "ספט׳", "אוק׳", "נוב׳", "דצמ׳"];
+  const monthlyData = Array.from({ length: 6 }, (_, k) => { const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - (5 - k)); const key = d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0"); return { month: MONTHS[d.getMonth()], jobs: workOrders.filter(w => String(w.createdDate || "").startsWith(key)).length }; });
+  const maxJobs = Math.max(1, ...monthlyData.map(d => d.jobs));
   return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     style: {
       marginBottom: 20
@@ -3391,15 +3355,13 @@ const DashboardPage = ({
     label: "\u05E2\u05D1\u05D5\u05D3\u05D5\u05EA \u05E4\u05E2\u05D9\u05DC\u05D5\u05EA",
     value: active.length,
     sub: `${todayJobs.length} מתוזמנות להיום`,
-    color: colors.primary,
-    trend: 12
+    color: colors.primary
   }), /*#__PURE__*/React.createElement(StatCard, {
     icon: Icons.check,
     label: "\u05D4\u05D5\u05E9\u05DC\u05DE\u05D5",
     value: completed.length,
     sub: "\u05D4\u05D7\u05D5\u05D3\u05E9",
-    color: colors.success,
-    trend: 8
+    color: colors.success
   }), /*#__PURE__*/React.createElement(StatCard, {
     icon: Icons.installers,
     label: "\u05D6\u05DE\u05D9\u05E0\u05D9\u05DD \u05DB\u05E2\u05EA",
@@ -3410,9 +3372,8 @@ const DashboardPage = ({
     icon: Icons.inventory,
     label: "\u05D4\u05DB\u05E0\u05E1\u05D5\u05EA (\u05D7\u05D5\u05D3\u05E9 \u05E0\u05D5\u05DB\u05D7\u05D9)",
     value: `₪${(revenue / 1000).toFixed(1)}K`,
-    sub: `${completed.length} עבודות`,
-    color: colors.success,
-    trend: 15
+    sub: "תעודות משלוח · לפני מע״מ",
+    color: colors.success
   })), (() => {
     const openSC = (serviceCalls || []).filter(sc => sc.status !== "completed");
     const urgentSC = openSC.filter(sc => sc.priority === "urgent");
@@ -4957,19 +4918,20 @@ ${dayLabel(day)} ${slot}
 
 לאשר או להציע שעה אחרת: מערכת Bariline ← איסוף.`);
 }
-async function timeAccept(p, byName, phone) {
+async function timeAccept(p, byName, phone, extra) {
   const now = new Date().toISOString(); const q = p.proposal;
   const day = q ? q.day : p.day, slot = q ? q.slot : p.slot;
-  await getDb().collection("pickups").doc(p.id).set({ timeOk: true, proposal: null, day, slot, timeOkBy: byName, timeOkAt: now, log: (p.log || []).concat({ at: now, by: byName, what: "שעה אושרה: " + day + " " + slot }) }, { merge: true });
+  await getDb().collection("pickups").doc(p.id).set({ timeOk: true, proposal: null, day, slot, timeOkBy: byName, timeOkAt: now, ...(extra || {}), log: (p.log || []).concat({ at: now, by: byName, what: "שעה אושרה: " + day + " " + slot }) }, { merge: true });
   waOpen(phone, `✅ ${byName} אישר את שעת האיסוף מהמחסן: ${dayLabel(day)} ${slot}`);
 }
 // side = "wh" (warehouse) | "inst" (installer)
-const PickupTime = ({ p, side, myName, phoneTo }) => {
+const PickupTime = ({ p, side, myName, phoneTo, accept }) => {
   const h = React.createElement;
   const [pick, setPick] = useState(false);
   const st = pickupSettings();
   const q = p.proposal;
   const go = f => f().catch(pkErr);
+  const doAccept = () => accept ? accept() : go(() => timeAccept(p, myName, phoneTo));
   const when = (d, s) => h("b", null, dayLabel(d), " ", h("bdi", { dir: "ltr" }, s));
   const box = (bg, fg, ...kids) => h("div", { style: { background: bg, border: `1.5px solid ${fg}`, color: colors.text, borderRadius: 12, padding: 10, marginTop: 10, fontSize: 14 } }, ...kids);
   const chooser = pick && h("div", { style: { display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 6, marginTop: 8 } }, workDays(5).flatMap(d => st.slots.map(s => {
@@ -4979,13 +4941,13 @@ const PickupTime = ({ p, side, myName, phoneTo }) => {
   const offerBtn = h("button", { onClick: () => setPick(!pick), style: pkBtn("#fff", colors.text) }, pick ? "סגור" : "הצע שעה אחרת");
   if (p.timeOk) return box("#e3f4e8", "#15803d", "✓ שעת האיסוף סגורה: ", when(p.day, p.slot));
   if (q && q.by !== side) return box("#fff7e6", "#b45309", "⏰ ", h("b", null, q.byName || (q.by === "wh" ? "המחסן" : "המתקין")), " מציע: ", when(q.day, q.slot),
-    h("div", { style: { display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" } }, h("button", { onClick: () => go(() => timeAccept(p, myName, phoneTo)), style: pkBtn("#0f766e") }, "✓ מאשר"), offerBtn), chooser);
+    h("div", { style: { display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" } }, h("button", { onClick: doAccept, style: pkBtn("#0f766e") }, "✓ מאשר"), offerBtn), chooser);
   if (q) return box("#edf1f4", "#64748b", "הצעת: ", when(q.day, q.slot), " – מחכה לתשובה", h("div", { style: { marginTop: 8 } }, offerBtn), chooser);
   if (side === "wh") return box("#fff7e6", "#b45309", "המתקין ביקש: ", when(p.day, p.slot),
-    h("div", { style: { display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" } }, h("button", { onClick: () => go(() => timeAccept(p, myName, phoneTo)), style: pkBtn("#0f766e") }, "✓ השעה מתאימה"), offerBtn), chooser);
+    h("div", { style: { display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" } }, h("button", { onClick: doAccept, style: pkBtn("#0f766e") }, "✓ השעה מתאימה"), offerBtn), chooser);
   return box("#edf1f4", "#64748b", "מחכה שהמחסן יאשר את השעה: ", when(p.day, p.slot), h("div", { style: { marginTop: 8 } }, offerBtn), chooser);
 };
-const PK_STEPS = [["sent", "נשלח"], ["approved", "מנהל אישר"], ["ready", "מוכן במחסן"], ["collected", "נאסף"]];
+const PK_STEPS = [["sent", "נשלח"], ["approved", "המחסן אישר"], ["ready", "מוכן במחסן"], ["collected", "נאסף"]];
 const PickupFlow = ({ status }) => {
   const h = React.createElement;
   const i = PK_STEPS.findIndex(s => s[0] === status);
@@ -5032,6 +4994,7 @@ const PickupInstallerPage = ({ workOrders, installerId, currentUser, accounts })
         refs.forEach(r => t.set(r, { pickupId: ref.id, installerId, status: "sent", at: now }));
       });
       setSel([]); setDay(null); setSlot(null);
+      waOpen(keeperPhoneOf(accounts), `בקשת איסוף חדשה 📦\nמתקין: ${req.installerName}\nמתי: ${dayLabel(day)} ${slot}\n${pickupLine(req, workOrders)}\n\nלאשר את השעה (או להציע אחרת) ולהכין – במערכת Bariline ← איסופים.`);
     } catch (e) {
       if (String(e.message).startsWith("DUP:")) alert("חלק מהעבודות כבר נאספו או נמצאות בבקשה אחרת — רענן ונסה שוב.");
       else pkErr(e);
@@ -5042,8 +5005,8 @@ const PickupInstallerPage = ({ workOrders, installerId, currentUser, accounts })
   const reqCard = p => h("div", { key: p.id, style: pkBox },
     h("div", { style: { display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap" } }, h("b", null, "📦 בקשת איסוף · ", dayLabel(p.day), " ", h("bdi", { dir: "ltr" }, p.slot)), null),
     h(PickupFlow, { status: p.status }),
-    h("div", { style: { fontSize: 14, fontWeight: 700, margin: "4px 0" } }, { sent: "ממתין לאישור המנהל", approved: p.timeOk ? "אושר – השעה סגורה, המחסן מכין" : "אושר – לסגור שעה עם המחסן", ready: "מוכן לאיסוף!" }[p.status]),
-    p.status === "approved" && h(PickupTime, { p, side: "inst", myName: currentUser && currentUser.name || "המתקין", phoneTo: keeperPhoneOf(accounts) }),
+    h("div", { style: { fontSize: 14, fontWeight: 700, margin: "4px 0" } }, { sent: "נשלח למחסן – מחכה שהמחסנאי יאשר את השעה", approved: "המחסן אישר – מכין את האיסוף", ready: "מוכן לאיסוף!" }[p.status]),
+    (p.status === "sent" || p.status === "approved") && h(PickupTime, { p, side: "inst", myName: currentUser && currentUser.name || "המתקין", phoneTo: keeperPhoneOf(accounts) }),
     p.jobIds.map(id => { const w = workOrders.find(x => x.id === id); return h("div", { key: id, style: { fontSize: 13.5, padding: "3px 0" } }, "• ", w ? w.customerName + " – " + (w.product || "") : id); }),
     (p.missing || []).length ? h("div", { style: { color: colors.danger, fontSize: 13, marginTop: 4 } }, "חסר במחסן: ", p.missing.map(id => (workOrders.find(x => x.id === id) || {}).customerName || id).join(", ")) : null,
     p.status === "ready" && p.barcode && h("div", { style: { marginTop: 10 } }, h("div", { style: { fontSize: 13, color: colors.textLight, marginBottom: 6 } }, "כשמגיעים – המחסנאי סורק את הברקוד (חד-פעמי, לאיסוף הזה בלבד):"), h(PickupQR, { text: p.barcode })),
@@ -5138,23 +5101,20 @@ const PickupAdminPage = ({ workOrders, installers, accounts, currentUser }) => {
     const noPick = workOrders.filter(w => w.installerId === inst.id && w.status === "completed" && String(w.completedDate || "") >= weekAgo && jobKindNow({ ...w, status: "x" }) === "install" && String(w.createdDate || "") >= st.since && !isCollected(w) && !w.pickupWaived);
     return { inst, got: ids.length, done: done.length, stuck, noPick };
   }).filter(r => r.got || r.stuck.length || r.noPick.length);
-  const tabs = [["approve", "לאישור", sent.length], ["wh", "במחסן", inWh.length], ["returns", "החזרות", returns.length], ["log", "יציאות מהמחסן", 0], ["report", "דוח שבועי", 0], ["settings", "הגדרות", 0]];
+  const openReq = pk.pickups.filter(p => ["sent", "approved", "ready"].includes(p.status)).sort((a, b) => (a.day + a.slot).localeCompare(b.day + b.slot));
+  const tabs = [["approve", "פתוחות (מעקב)", openReq.length], ["returns", "החזרות", returns.length], ["log", "יציאות מהמחסן", 0], ["report", "דוח שבועי", 0], ["settings", "הגדרות", 0]];
   const reqHead = p => h("div", { style: { display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap", alignItems: "baseline" } }, h("b", { style: { fontSize: 15 } }, p.installerName, " · ", dayLabel(p.day), " ", h("bdi", { dir: "ltr" }, p.slot), " · ", p.jobIds.length, " עבודות"), h("span", { style: { fontSize: 12, color: colors.textMuted } }, "נשלח ", String(p.createdAt || "").slice(5, 16).replace("T", " ")));
   return h("div", null,
-    h("div", { style: { marginBottom: 16 } }, h("h1", { style: { fontSize: isMobile ? 20 : 24, fontWeight: 800, margin: 0 } }, "📦 איסופים מהמחסן"), h("p", { style: { color: colors.textLight, margin: "4px 0 0", fontSize: 13 } }, "המתקין מבקש ← המנהל מאשר ← המחסן מכין ← מסירה בסריקת ברקוד חד-פעמי. המלאי לא משתנה כאן.")),
+    h("div", { style: { marginBottom: 16 } }, h("h1", { style: { fontSize: isMobile ? 20 : 24, fontWeight: 800, margin: 0 } }, "📦 איסופים מהמחסן"), h("p", { style: { color: colors.textLight, margin: "4px 0 0", fontSize: 13 } }, "המתקין מבקש ← המחסנאי מאשר שעה ומכין ← מסירה בסריקת ברקוד חד-פעמי. כאן רק מעקב, החזרות, דוח והגדרות. המלאי לא משתנה כאן.")),
     pk.error && h("div", { style: { ...pkBox, color: colors.danger } }, "⚠ ", pk.error),
     h("div", { style: { display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 14 } }, tabs.map(([k, l, n]) => h("button", { key: k, onClick: () => setTab(k), style: { padding: "8px 14px", borderRadius: 20, border: `2px solid ${tab === k ? "#0f766e" : colors.border}`, background: tab === k ? "#0f766e" : "#fff", color: tab === k ? "#fff" : colors.text, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" } }, l, n ? " (" + n + ")" : ""))),
-    tab === "approve" && (sent.length ? sent.map(p => {
+    tab === "approve" && (openReq.length ? openReq.map(p => {
       const checks = pickupChecks(p, workOrders);
-      const bad = checks.filter(c => c.probs.length);
-      return h("div", { key: p.id, style: pkBox }, reqHead(p),
-        h("div", { style: { marginTop: 8 } }, checks.map(c => h("div", { key: c.id, style: { fontSize: 13.5, padding: "3px 0", color: c.probs.length ? colors.danger : "#15803d", fontWeight: c.probs.length ? 700 : 400 } },
-          c.probs.length ? "⚠ " : "✓ ", c.w ? c.w.customerName + " – " + (c.w.product || "") : c.id, c.probs.length ? " – " + c.probs.join(", ") : " · משויכת · מוכנה · לא נאספה קודם"))),
-        h("div", { style: { display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" } },
-          bad.length ? h("button", { onClick: () => approve(p, true), style: pkBtn("#0f766e") }, "אשר בלי הבעייתיות (" + (p.jobIds.length - bad.length) + ")") : h("button", { onClick: () => approve(p, false), style: pkBtn("#0f766e") }, "✓ אשר ושלח למחסן"),
-          h("button", { onClick: () => reject(p), style: pkBtn("#fff", colors.danger) }, "דחה")));
-    }) : h("div", { style: { ...pkBox, color: colors.textMuted } }, "אין בקשות שמחכות לאישור")),
-    tab === "wh" && (inWh.length ? inWh.map(p => h("div", { key: p.id, style: pkBox }, reqHead(p), h(PickupFlow, { status: p.status }), h("div", { style: { fontSize: 13, whiteSpace: "pre-line" } }, pickupLine(p, workOrders)))) : h("div", { style: { ...pkBox, color: colors.textMuted } }, "אין")),
+      return h("div", { key: p.id, style: pkBox }, reqHead(p), h(PickupFlow, { status: p.status }),
+        h("div", { style: { fontSize: 13, fontWeight: 700, margin: "4px 0" } }, { sent: "נשלח – המחסן עוד לא אישר", approved: "המחסן אישר · " + (p.timeOk ? "שעה סגורה" : "שעה בדיון"), ready: "מוכן במחסן – מחכה למתקין" }[p.status]),
+        h("div", { style: { marginTop: 4 } }, checks.map(c => h("div", { key: c.id, style: { fontSize: 13, padding: "2px 0", color: c.probs.length ? colors.danger : colors.text } }, c.probs.length ? "⚠ " : "• ", c.w ? c.w.customerName + " – " + (c.w.product || "") : c.id, c.probs.length ? " – " + c.probs.join(", ") : ""))),
+        h("div", { style: { marginTop: 8 } }, h("button", { onClick: () => reject(p), style: pkBtn("#fff", colors.danger) }, "בטל בקשה")));
+    }) : h("div", { style: { ...pkBox, color: colors.textMuted } }, "אין בקשות פתוחות")),
     tab === "returns" && h("div", null,
       returns.length ? returns.map(r => h("div", { key: r.id, style: pkBox }, h("b", null, "↩ ", r.w ? r.w.customerName + " – " + (r.w.product || "") : r.id),
         h("div", { style: { fontSize: 13, color: colors.textLight, margin: "4px 0 8px" } }, "העבודה בוטלה. המחסנאי סימן שהמקלחון חזר (", r.l.returnMarkedBy || "", " ", String(r.l.returnMarkedAt || "").slice(0, 10), ")"),
@@ -5192,8 +5152,23 @@ const WarehousePage = ({ workOrders, installers, currentUser, view }) => {
   const [ok, setOk] = useState({});        // pickupId -> [jobIds ready]
   const who = currentUser && currentUser.name || "מחסן";
   const instPhone = id => ((installers || []).find(i => i.id === id) || {}).phone || "";
-  const list = pk.pickups.filter(p => ["approved", "ready"].includes(p.status)).sort((a, b) => (a.day + a.slot).localeCompare(b.day + b.slot));
-  const waitingAdmin = pk.pickups.filter(p => p.status === "sent").length;
+  const list = pk.pickups.filter(p => ["sent", "approved", "ready"].includes(p.status)).sort((a, b) => (a.day + a.slot).localeCompare(b.day + b.slot));
+  const keeperAccept = async p => {
+    const bad = pickupChecks(p, workOrders).filter(c => c.probs.length);
+    const keep = p.jobIds.filter(id => !bad.some(c => c.id === id));
+    if (!keep.length) return alert("אין עבודות תקינות בבקשה – לדחות אותה.");
+    if (bad.length && !confirm(bad.length + " עבודות בעייתיות יוסרו מהבקשה:\n" + bad.map(c => "• " + (c.w ? c.w.customerName : c.id) + " – " + c.probs.join(", ")).join("\n") + "\n\nלאשר את השאר?")) return;
+    try {
+      const mine = bad.map(c => c.id).filter(id => { const l = lockOf(id); return l && l.pickupId === p.id; });
+      if (mine.length) await releaseLocks(p, mine);
+      const now = new Date().toISOString();
+      await timeAccept({ ...p, jobIds: keep }, who, instPhone(p.installerId), { status: "approved", jobIds: keep, removed: bad.map(c => c.id), approvedBy: who, approvedAt: now });
+    } catch (e) { pkErr(e); }
+  };
+  const keeperReject = async p => {
+    if (!confirm("לדחות את בקשת האיסוף של " + p.installerName + "?")) return;
+    try { const now = new Date().toISOString(); await pickupWrite(p, { status: "rejected", rejectedBy: who, rejectedAt: now }, "released"); waOpen(instPhone(p.installerId), `בקשת האיסוף ל-${dayLabel(p.day)} ${p.slot} לא אושרה במחסן. לפרטים – להתקשר למחסן.`); } catch (e) { pkErr(e); }
+  };
   const returns = workOrders.filter(w => ["cancelled", "rejected"].includes(w.status) && (lockOf(w.id) || {}).status === "collected");
   const marked = Object.entries(pk.locks).filter(([, l]) => l.status === "return_marked").map(([id]) => workOrders.find(x => x.id === id)).filter(Boolean);
   const done = pk.pickups.filter(p => p.status === "collected").sort((a, b) => String(b.collectedAt).localeCompare(String(a.collectedAt)));
@@ -5236,14 +5211,15 @@ const WarehousePage = ({ workOrders, installers, currentUser, view }) => {
     scanMsg && h("div", { onClick: () => setScanMsg(null), style: { ...pkBox, cursor: "pointer", fontWeight: 700, fontSize: 15, background: scanMsg[0] === "ok" ? "#e3f4e8" : "#fde7e4", color: scanMsg[0] === "ok" ? "#15803d" : "#b42318", border: "2px solid currentColor" } }, scanMsg[1], h("div", { style: { fontSize: 12, fontWeight: 400, marginTop: 4, color: colors.textLight } }, "לחיצה לסגירה")),
     view === "pickups" && h("button", { "data-tour": "wh-scan", onClick: () => setScanFor("any"), style: { ...pkBtn("#12303a"), width: "100%", padding: 14, fontSize: 16, marginBottom: 12 } }, "📷 סרוק ברקוד של מתקין"),
     view === "pickups" && h("div", null,
-      waitingAdmin ? h("div", { style: { ...pkBox, color: colors.textMuted, fontSize: 13.5 } }, waitingAdmin, " בקשות מחכות לאישור המנהל – יופיעו כאן אחרי האישור") : null,
       list.length ? list.map(p => h("div", { key: p.id, "data-tour": "wh-req", style: pkBox },
         h("b", { style: { fontSize: 16 } }, p.installerName, " · ", dayLabel(p.day), " ", h("bdi", { dir: "ltr" }, p.slot)), h(PickupFlow, { status: p.status }),
+        p.status === "sent" && (() => { const bad = pickupChecks(p, workOrders).filter(c => c.probs.length); return bad.length ? h("div", { style: { background: "#fde7e4", border: "1.5px solid #b42318", borderRadius: 10, padding: "8px 10px", fontSize: 13, color: "#b42318", fontWeight: 700, marginTop: 8 } }, "⚠ בעיות בבקשה (יוסרו באישור):", bad.map(c => h("div", { key: c.id, style: { fontWeight: 500 } }, "• ", c.w ? c.w.customerName : c.id, " – ", c.probs.join(", ")))) : null; })(),
         p.jobIds.map(id => { const w = workOrders.find(x => x.id === id); return h("label", { key: id, style: { display: "flex", gap: 10, alignItems: "center", padding: "8px 0", borderTop: `1px solid ${colors.border}` } },
-          h("input", { type: "checkbox", disabled: p.status !== "approved", checked: okOf(p).includes(id), onChange: e => setOk({ ...ok, [p.id]: e.target.checked ? okOf(p).concat(id) : okOf(p).filter(x => x !== id) }), style: { width: 22, height: 22, accentColor: "#0f766e" } }),
+          h("input", { type: "checkbox", disabled: p.status === "ready", checked: okOf(p).includes(id), onChange: e => setOk({ ...ok, [p.id]: e.target.checked ? okOf(p).concat(id) : okOf(p).filter(x => x !== id) }), style: { width: 22, height: 22, accentColor: "#0f766e" } }),
           h("div", null, h("div", { style: { fontWeight: 700 } }, w ? w.product || "—" : id), h("div", { style: { fontSize: 12.5, color: colors.textLight } }, w ? w.customerName + " · " + ((placeOf(w.address) || {}).town || w.address || "") : ""))); }),
-        p.status === "approved" ? h("div", null,
-          h(PickupTime, { p, side: "wh", myName: who, phoneTo: instPhone(p.installerId) }),
+        p.status !== "ready" ? h("div", null,
+          h(PickupTime, { p, side: "wh", myName: who, phoneTo: instPhone(p.installerId), accept: p.status === "sent" ? () => keeperAccept(p) : null }),
+          p.status === "sent" && h("button", { onClick: () => keeperReject(p), style: { ...pkBtn("#fff", colors.danger), marginTop: 8 } }, "דחה בקשה"),
           h("button", { onClick: () => ready(p), disabled: !p.timeOk, title: p.timeOk ? "" : "קודם לסגור שעה עם המתקין", style: { ...pkBtn("#0f766e"), width: "100%", marginTop: 10, padding: 13, opacity: p.timeOk ? 1 : 0.45 } }, okOf(p).length < p.jobIds.length ? "✓ מוכן (" + okOf(p).length + "/" + p.jobIds.length + ")" : "✓ הכל מוכן לאיסוף")) :
           h("div", { style: { marginTop: 10 } }, h("div", { style: { fontSize: 13, color: colors.textLight, marginBottom: 6 } }, "כשהמתקין מגיע – סורקים את הברקוד שבטלפון שלו:"),
             h("button", { onClick: () => setScanFor(p.id), style: { ...pkBtn("#0f766e"), width: "100%", padding: 14, fontSize: 16 } }, "📷 סרוק ברקוד ומסור")),
@@ -5259,11 +5235,53 @@ const WarehousePage = ({ workOrders, installers, currentUser, view }) => {
 // ─── Installer screens: one card style, the job list in 3 tabs, "nearby" popup ────
 const STRIPE = { plan: ["#fdf1df", "#b45309"], measure: ["#efe9fd", "#6d28d9"], install: ["#e6eefc", "#1d5fd1"], service: ["#fdebe1", "#c2410c"], wait: ["#edf1f4", "#64748b"], done: ["#e3f4e8", "#15803d"], problem: ["#fde7e4", "#b42318"] };
 const isWaitGlassInst = w => w.productType === "custom" && w.measured && !w.glassReady && !["completed", "cancelled", "rejected"].includes(w.status);
+// glass sent back to production after the measurement was approved (broken / wrong size): job.glassRework { pieces, reason, note, by, at, status open|done, cost? }
+const reworkOpen = w => !!(w && w.glassRework && w.glassRework.status === "open");
+const REWORK_REASONS = ["נשברה בהתקנה", "נשברה בהובלה / במחסן", "מידה לא נכונה", "פגם מהמפעל", "אחר"];
+async function measurementPieces(w) {
+  const cur = currentMeasurement(w);
+  if (!cur || !cur.hash) return [];
+  try {
+    const m = await readMeasureHash(cur.hash);
+    const T = { fixed: "קבוע", door: "דלת", harm: "הרמוניקה" };
+    const out = [];
+    (m.items || []).forEach((it, i) => (it.opts || []).forEach((o, j) => (o.sides || []).forEach((sd, si) => {
+      const N = o.sides.length; const els = N >= 2 && si === N - 1 ? [...(sd.els || [])].reverse() : sd.els || [];
+      els.forEach(e => out.push(((m.items.length > 1 ? (it.room || "מקלחון " + (i + 1)) + " · " : "") + (it.opts.length > 1 ? "אופציה " + (o.opt || "") + " · " : "") + (N === 1 ? "חזית" : si === 0 ? "צלע שמאל" : "צלע ימין") + " · " + (T[e.type] || e.type) + " " + (e.w || "") + (e.wTop ? " (למעלה " + e.wTop + ")" : "") + " · " + (o.glass || "") + " " + (o.thick || "") + " מ״מ · גובה " + (o.height || "")).trim()));
+    })));
+    return out;
+  } catch (e) { return []; }
+}
+const ReworkModal = ({ job, by, onClose, onSave }) => {
+  const h = React.createElement;
+  const [pieces, setPieces] = useState(null);
+  const [sel, setSel] = useState([]);
+  const [reason, setReason] = useState(REWORK_REASONS[0]);
+  const [note, setNote] = useState("");
+  const [custom, setCustom] = useState("");
+  useEffect(() => { let on = true; measurementPieces(job).then(p => on && setPieces(p)); return () => { on = false; }; }, [job.id]);
+  const toggle = t => setSel(sel.includes(t) ? sel.filter(x => x !== t) : sel.concat(t));
+  const list = (pieces || []).concat(custom.trim() ? [custom.trim()] : []);
+  const ok = sel.length > 0;
+  return h(Modal, { title: "🔧 זכוכית לתיקון – " + (job.customerName || ""), onClose, width: 520 },
+    h("div", { style: { fontSize: 13.5, color: colors.textLight, marginBottom: 10 } }, "איזו זכוכית צריך לייצר מחדש מתוך המדידה הקיימת? מסמנים, ובוחרים סיבה. העבודה תחזור ל\"ממתין לזכוכית\" עד שהזכוכית החדשה מוכנה."),
+    pieces === null ? h("div", { style: { color: colors.textMuted } }, "טוען את המדידה…") : null,
+    pieces && !pieces.length ? h("div", { style: { color: colors.warning, fontSize: 13, marginBottom: 8 } }, "לא נמצאה מדידה שמורה במערכת – כתבו את הזכוכית ידנית:") : null,
+    list.map(t => h("label", { key: t, style: { display: "flex", gap: 10, alignItems: "center", padding: "8px 4px", borderTop: `1px solid ${colors.border}`, cursor: "pointer" } },
+      h("input", { type: "checkbox", checked: sel.includes(t), onChange: () => toggle(t), style: { width: 20, height: 20, accentColor: "#b42318" } }), h("span", { style: { fontSize: 14 } }, t))),
+    h("input", { value: custom, onChange: e => setCustom(e.target.value), placeholder: "זכוכית אחרת (ידני)…", style: { ...inputStyle, marginTop: 8 } }),
+    h("div", { style: { marginTop: 12 } }, h(FormField, { label: "סיבה" }, h("select", { value: reason, onChange: e => setReason(e.target.value), style: inputStyle }, REWORK_REASONS.map(r => h("option", { key: r, value: r }, r))))),
+    h(FormField, { label: "הערה (מה בדיוק קרה / המידה הנכונה)" }, h("textarea", { value: note, onChange: e => setNote(e.target.value), rows: 3, style: inputStyle })),
+    h("div", { style: { display: "flex", gap: 8 } },
+      h(Button, { variant: "danger", disabled: !ok, onClick: () => onSave({ pieces: sel, reason, note: note.trim(), by, at: new Date().toISOString(), status: "open" }) }, "🔧 שלח לתיקון במפעל"),
+      h(Button, { variant: "outline", onClick: onClose }, "ביטול")));
+};
 // a job the installer still has to schedule with the customer: no date, or a date that passed without the job starting
 const needsDate = w => !["in-progress", "problem", "completed", "cancelled", "rejected"].includes(w.status) && (!w.scheduledDate || w.scheduledDate < todayISO());
 function jobStripe(w) {
   if (w.status === "completed") return ["done", "✓ בוצע"];
   if (w.status === "problem") return ["problem", "⚠ בעיה"];
+  if (reworkOpen(w)) return ["wait", "🔧 זכוכית בתיקון"];
   if (isWaitGlassInst(w)) return ["wait", "⏳ בהכנה"];
   const k = jobKindNow(w);
   if (w.status === "pending" || needsDate(w)) return ["plan", w.scheduledDate && w.scheduledDate < todayISO() ? "📅 התאריך עבר – לתאם מחדש" : k === "measure" ? "📅 לתאם מדידה" : "📅 לתאם התקנה"];
@@ -5395,7 +5413,7 @@ const TOURS = {
     { page: "orders", sel: '[data-tour="seg"]', title: "העבודות שלי", text: "שלוש לשוניות:\n📅 לתאם – עבודות בלי תאריך\n🗓 מתוזמן – לפי תאריך\n✓ בוצע – 30 הימים האחרונים" },
     { page: "orders", sel: '[data-tour="chips"]', title: "סינון", text: "📏 מדידות · 🔧 התקנות · 🛠 שירות\nכדי לראות רק מה שצריך עכשיו." },
     { page: "orders", sel: '[data-tour="nav-service"]', title: "🛠 שירות", text: "קריאות שירות: תיקונים אצל לקוחות קיימים.\nקריאה בלי מתקין אפשר לקחת." },
-    { page: "pickup", sel: '[data-tour="pk-list"]', title: "📦 איסוף מהמחסן", text: "לפני התקנה חייבים לאסוף דרך המערכת:\n1. מסמנים מה לוקחים\n2. בוחרים יום ושעה\n3. שולחים – המנהל מאשר, המחסן מכין", example: "כשמוכן תקבל וואטסאפ וברקוד. במחסן מראים את הברקוד בטלפון, סורקים, ויוצאים.\nבלי איסוף אי אפשר להתחיל עבודה." },
+    { page: "pickup", sel: '[data-tour="pk-list"]', title: "📦 איסוף מהמחסן", text: "לפני התקנה חייבים לאסוף דרך המערכת:\n1. מסמנים מה לוקחים\n2. בוחרים יום ושעה\n3. שולחים – המחסנאי מאשר את השעה ומכין", example: "כשמוכן תקבל וואטסאפ וברקוד. במחסן מראים את הברקוד בטלפון, סורקים, ויוצאים.\nבלי איסוף אי אפשר להתחיל עבודה." },
     { page: "pickup", sel: '[data-tour="nav-waiting_glass"]', title: "⏳ בהכנה", text: "מקלחונים לפי מידה שמחכים לזכוכית או לפענוח.\nכשמוכן תקבל וואטסאפ, והעבודה תעבור ל\"לתאם\"." },
     { page: "today", title: "📏 מדידה – הכי חשוב", text: "בעבודה עם 📏 לוחצים את הכפתור הגדול \"פתח טופס מדידה\".\nהטופס מוביל שלב-שלב:\n1 לקוח → 2 סוג → 3 צורה מתמונה → 4 מידות → 5 זכוכית → 6 צילום → 7 חתימה", example: "מודדים למטה, ברוטו (בלי הורדות).\nמזינים את אורך הצלע ואת הקבוע, והדלת מחושבת לבד.", action: { label: "▶ הדגמה חיה של מדידה", key: "demo-measure" } },
     { sel: '[data-tour="logout"]', title: "התנתקות", text: "כאן מתנתקים. לידו: \"⬆ למסך הבית\" שומר את האפליקציה כאייקון בטלפון." },
@@ -5403,7 +5421,7 @@ const TOURS = {
   ],
   warehouse: [
     { title: "ברוך הבא 👋", text: "כאן רואים רק את מה שקשור למחסן: איסופים, החזרות, ומה נמסר.\nאפשר להפעיל את ההדרכה שוב מכפתור ? שלמעלה." },
-    { page: "wh_pickups", sel: '[data-tour="nav-wh_pickups"]', title: "📦 איסופים", text: "בקשות שהמנהל כבר אישר. כל בקשה: מי המתקין, מתי הוא רוצה להגיע, ומה הוא לוקח." },
+    { page: "wh_pickups", sel: '[data-tour="nav-wh_pickups"]', title: "📦 איסופים", text: "בקשות של המתקינים מגיעות ישר אליך. כל בקשה: מי המתקין, מתי הוא רוצה להגיע, ומה הוא לוקח.\nעבודה בעייתית (כבר נאספה / לא מוכנה) מסומנת באדום ויורדת מהבקשה באישור." },
     { page: "wh_pickups", sel: '[data-tour="wh-req"]', title: "שלב 1: השעה", text: "המתקין ביקש שעה. אם מתאים: \"✓ השעה מתאימה\".\nלא מתאים: \"הצע שעה אחרת\". המתקין מקבל וואטסאפ ומאשר או מציע בחזרה.", example: "עד שהשעה סגורה, כפתור \"הכל מוכן\" נעול." },
     { page: "wh_pickups", sel: '[data-tour="wh-req"]', title: "שלב 2: להכין", text: "מסמנים ✓ על כל מקלחון שמוכן. חסר משהו? מורידים את ה-✓ שלו.\nואז \"✓ הכל מוכן לאיסוף\": המתקין מקבל וואטסאפ וברקוד." },
     { page: "wh_pickups", sel: '[data-tour="wh-scan"]', title: "שלב 3: מסירה בברקוד", text: "כשהמתקין מגיע: \"📷 סרוק ברקוד\" פותח את המצלמה. סורקים את הברקוד מהטלפון שלו, והמערכת רושמת \"נמסר\".", example: "הברקוד חד-פעמי. ברקוד שכבר נסרק מקבל אזהרה אדומה: לא למסור שוב.\nאין מצלמה? אפשר להקליד את הקוד שמתחת לברקוד." },
@@ -5418,7 +5436,7 @@ const TOURS = {
     { sidebar: true, sel: '[data-tour="nav-waiting_glass"]', title: "ממתין לזכוכית", text: "צירים נקיים | מודולרי.\nכשהזכוכית הגיעה: \"זכוכית מוכנה\". מודולרי: \"מוכן – העבר למתקין\". המתקין מקבל וואטסאפ." },
     { sidebar: true, sel: '[data-tour="nav-modular"]', title: "פענוח מודולרי", text: "דגמים מהמלאי. בוחרים פריטים (אפשר חצי יחידה) ו\"אשר פענוח\" מוריד אותם מהמלאי.", example: "תעודת משלוח עם דגם מודולרי בלי מדידה מגיעה לכאן לבד." },
     { sidebar: true, sel: '[data-tour="nav-quotes"]', title: "הצעות מחיר ממתינות", text: "הצעות ממדף שמחכות לחנות. \"תזכורת לחנות\" פותח וואטסאפ." },
-    { sidebar: true, sel: '[data-tour="nav-pickups"]', title: "איסופים מהמחסן", text: "לאישור: בקשות של מתקינים עם בדיקה אוטומטית (כפילות באדום).\nהחזרות · יציאות מהמחסן · דוח שבועי · הגדרות שעות." },
+    { sidebar: true, sel: '[data-tour="nav-pickups"]', title: "איסופים מהמחסן", text: "מעקב בלבד: המחסנאי מאשר את הבקשות. כאן רואים את כל הפתוחות (בעיות באדום), מאשרים החזרות, ורואים יציאות, דוח שבועי והגדרות שעות." },
     { sidebar: true, sel: '[data-tour="nav-inventory"]', title: "מלאי", text: "מכולות, פריטים, פריטי מדף. המלאי יורד לבד מתעודות משלוח ומפענוח." },
     { sidebar: true, sel: '[data-tour="nav-reports"]', title: "דוחות", text: "רווחיות לכל תעודת משלוח: מחיר, עלות, רווח." },
     { sidebar: true, sel: '[data-tour="nav-accounts"]', title: "ניהול חשבונות", text: "חשבונות למתקינים ולמחסנאי. \"📲 שלח פרטי כניסה\" שולח וואטסאפ עם סיסמה והסבר." },
@@ -5558,6 +5576,15 @@ const WorkOrdersPage = ({
   const [showRejectModal, setShowRejectModal] = useState(null);
   const [rejectReason, setRejectReason] = useState("");
   const [showProblemModal, setShowProblemModal] = useState(null);
+  const [showRework, setShowRework] = useState(null);
+  const currentUserName = role === "installer" ? ((installers.find(i => i.id === installerId) || {}).name || "מתקין") : "מנהל";
+  const saveRework = (id, rw) => {
+    const fix = w => ({ ...w, glassRework: rw, glassReworkHistory: [...(w.glassReworkHistory || []), rw], glassReady: false, glassReadyMatched: false, status: ["in-progress", "problem"].includes(w.status) ? "scheduled" : w.status });
+    setWorkOrders(prev => prev.map(w => w.id === id ? addLog(fix(w), "glass_rework") : w));
+    setSelected(prev => prev && prev.id === id ? fix(prev) : prev);
+    setShowRework(null);
+  };
+  const setReworkCost = (id, cost) => setWorkOrders(prev => prev.map(w => w.id === id && w.glassRework ? { ...w, glassRework: { ...w.glassRework, cost } } : w));
   const [problemNote, setProblemNote] = useState("");
   const [showTakeJobModal, setShowTakeJobModal] = useState(null);
   const [takeJobDate, setTakeJobDate] = useState("");
@@ -5724,7 +5751,7 @@ const WorkOrdersPage = ({
     };
     if (!wo.measurementConfirmed && isModularJob(wo)) return {
       step: 2,
-      label: hasMadafDelivery(wo) || wo.modularReady ? "בפענוח מודולרי — לאשר מדידה ולבחור פריטים" : wo.madafQuote ? "ממתין לאישור הצעת המחיר" : isMixedJob(wo) && wo.modularPlanned ? "פוענח + שרטוט שמורים — להפיק הצעת מחיר במדף" : "מדידה בוצעה — להפיק הצעת מחיר במדף",
+      label: hasMadafDelivery(wo) || wo.modularReady ? "בפענוח מודולרי — לאשר מדידה ולבחור פריטים" : wo.madafQuote ? "ממתין לאישור הצעת המחיר" : isModularJob(wo) && wo.modularPlanned ? (isMixedJob(wo) ? "פוענח + שרטוט שמורים — להפיק הצעת מחיר במדף" : "פוענח — להפיק הצעת מחיר במדף") : "מדידה בוצעה — להפיק הצעת מחיר במדף",
       color: "#f59e0b",
       icon: Icons.inventory
     };
@@ -6037,6 +6064,7 @@ const WorkOrdersPage = ({
     if (w.status === "completed") b = ["✓ העבודה הושלמה", "#15803d", null];
     else if (["in-progress", "problem"].includes(w.status)) b = ["✅ סיים עבודה + צלם אחרי", "#15803d", photo("after", "finish")];
     else if (w.productType === "custom" && !w.measured) b = w.status === "pending" || needsDate(w) ? [w.scheduledDate && w.scheduledDate < todayISO() ? "📅 התאריך עבר – קבע מועד מחדש" : "📅 קבע מועד למדידה", "#b45309", () => setShowTakeJobModal(w.id)] : ["📏 פתח טופס מדידה", "#6d28d9", () => openMeasureForm(w, "new")];
+    else if (reworkOpen(w)) b = ["🔧 זכוכית בתיקון במפעל – תקבל הודעה כשמוכנה", "#64748b", null];
     else if (isWaitGlassInst(w)) b = ["⏳ בהכנה – תקבל הודעה כשמוכן", "#64748b", null];
     else if (w.status === "pending" || needsDate(w)) b = [w.scheduledDate && w.scheduledDate < todayISO() ? "📅 התאריך עבר – קבע תאריך מחדש" : "📅 קבע תאריך עם הלקוח", "#b45309", () => setShowTakeJobModal(w.id)];
     else if (w.status === "scheduled" && (std || w.glassReady && w.glassReadyMatched)) b = mustPick ? [inActivePickup(w) ? "📦 בבקשת איסוף – מחכה למחסן" : "📦 קודם לאסוף מהמחסן", "#1d5fd1", () => { setSelected(null); setPage && setPage("pickup"); }] : ["📷 התחל עבודה + צלם לפני", "#1d5fd1", photo("before", "start")];
@@ -6046,7 +6074,8 @@ const WorkOrdersPage = ({
     return h("div", { style: { background: "#f8fafc", border: `1px solid ${colors.border}`, borderRadius: 14, padding: 12, marginBottom: 14, display: "flex", flexDirection: "column", gap: 10 } },
       needsPickup(w) && w.status !== "completed" ? h("span", { style: { alignSelf: "flex-start", borderRadius: 99, padding: "2px 10px", fontSize: 12, fontWeight: 800, border: "1.5px solid", ...(isCollected(w) ? { background: "#e3f4e8", color: "#15803d" } : { background: "#fde7e4", color: "#b42318" }) } }, isCollected(w) ? "✓ נאסף מהמחסן" : "📦 עוד לא נאסף מהמחסן – אי אפשר להתחיל בלי איסוף") : null,
       h("button", { onClick: b[2] || undefined, disabled: !b[2], style: { border: 0, borderRadius: 12, background: b[1], color: "#fff", fontWeight: 800, fontSize: 17, padding: 15, cursor: b[2] ? "pointer" : "default", opacity: b[2] ? 1 : .85, fontFamily: "inherit" } }, b[0]),
-      h("div", { style: { display: "flex", gap: 8 } }, w.address ? small("🧭 נווט", wazeUrl(w.address)) : null, w.customerPhone ? small("📞 התקשר", telUrl(w.customerPhone)) : null, w.customerPhone ? small("💬 וואטסאפ", "https://wa.me/" + wa) : null));
+      h("div", { style: { display: "flex", gap: 8 } }, w.address ? small("🧭 נווט", wazeUrl(w.address)) : null, w.customerPhone ? small("📞 התקשר", telUrl(w.customerPhone)) : null, w.customerPhone ? small("💬 וואטסאפ", "https://wa.me/" + wa) : null),
+      w.status === "scheduled" && w.scheduledDate && !needsDate(w) ? h("button", { onClick: () => setShowTakeJobModal(w.id), style: { alignSelf: "flex-start", border: 0, background: "none", color: "#b45309", fontWeight: 700, fontSize: 13.5, textDecoration: "underline", cursor: "pointer", fontFamily: "inherit", padding: 0 } }, "📅 שנה מועד (" + dayLabel(w.scheduledDate) + (w.scheduledTime ? " " + w.scheduledTime : "") + ")") : null);
   };
   const selfAssign = (woId, date, timeFrom, timeTo) => {
     const inst = installers.find(i => i.id === installerId);
@@ -6253,7 +6282,8 @@ const WorkOrdersPage = ({
       glassReady: true,
       glassReadyDate: new Date().toISOString().split("T")[0],
       status: "pending",
-      glassReadyMatched: false
+      glassReadyMatched: false,
+      ...(reworkOpen(w) ? { glassRework: { ...w.glassRework, status: "done", doneAt: new Date().toISOString() } } : {})
     }, "glass_ready") : w));
     // Notify installer via WhatsApp
     if (wo && wo.installerId) {
@@ -6487,7 +6517,7 @@ const WorkOrdersPage = ({
       fontSize: 16,
       color: warrantyPdf ? colors.successDark : colors.textLight
     }
-  }, "\u2699"), role === "admin" && /*#__PURE__*/React.createElement(Button, {
+  }, "\u2699"), false && /*#__PURE__*/React.createElement(Button, {
     onClick: () => setShowPhotoImport(true),
     variant: "outline",
     style: {
@@ -6603,7 +6633,7 @@ const WorkOrdersPage = ({
     const calEvents = [];
     calJobs.forEach(w => {
       if (w.productType === "custom") {
-        const md = w.measured ? w.measurementDate || "" : w.scheduledDate || "";
+        const md = w.measured ? (currentMeasurement(w) ? w.measurementDate || "" : "") : w.scheduledDate || "";
         if (md) calEvents.push({ w, date: md, kind: "measure", done: !!w.measured });
         if (w.measured && w.glassReady && w.scheduledDate && w.scheduledDate !== w.measurementDate) calEvents.push({ w, date: w.scheduledDate, kind: "install", done: w.status === "completed" });
       } else if (w.scheduledDate) calEvents.push({ w, date: w.scheduledDate, kind: "install", done: w.status === "completed" });
@@ -6965,7 +6995,7 @@ const WorkOrdersPage = ({
       }
     }, isStandard ? "סטנדרט" : isMixedJob(wo) ? "מודולרי + צירים נקיים" : isModularJob(wo) ? "מודולרי" : "צירים נקיים"), /*#__PURE__*/React.createElement(StatusBadge, {
       status: wo.status
-    }), measuredOutside(wo) && wo.status !== "completed" && /*#__PURE__*/React.createElement("span", {
+    }), reworkOpen(wo) && /*#__PURE__*/React.createElement("span", { style: { padding: "1px 7px", borderRadius: 10, fontSize: 10, fontWeight: 700, background: "#fde7e4", color: "#b42318" } }, "🔧 זכוכית בתיקון"), measuredOutside(wo) && wo.status !== "completed" && /*#__PURE__*/React.createElement("span", {
       title: "במדף יש הזמנת לקוח / הצעת מחיר, אבל המדידה לא נשמרה במערכת",
       style: { padding: "1px 7px", borderRadius: 10, fontSize: 10, fontWeight: 700, background: "#f1f5f9", color: "#475569", border: "1px dashed #94a3b8" }
     }, "📝 נמדד מחוץ למערכת")), role === "installer" && React.createElement("div", { style: { margin: "4px 0" } }, React.createElement(NearTag, { w: wo, workOrders, installerId })), /*#__PURE__*/React.createElement("div", {
@@ -7243,7 +7273,13 @@ const WorkOrdersPage = ({
       onClose: () => setSelected(null),
       width: 620,
       page: role === "installer"
-    }, role === "installer" && installerNextStep(selected), /*#__PURE__*/React.createElement("div", {
+    }, role === "installer" && installerNextStep(selected), showRework === selected.id && React.createElement(ReworkModal, { job: selected, by: currentUserName, onClose: () => setShowRework(null), onSave: rw => saveRework(selected.id, rw) }),
+    selected.glassRework && (reworkOpen(selected) || role === "admin") && React.createElement("div", { style: { background: reworkOpen(selected) ? "#fde7e4" : "#f1f5f9", border: `1.5px solid ${reworkOpen(selected) ? "#b42318" : colors.border}`, borderRadius: 12, padding: 12, marginBottom: 12, fontSize: 13.5 } },
+      React.createElement("div", { style: { fontWeight: 800, color: reworkOpen(selected) ? "#b42318" : colors.textLight, marginBottom: 4 } }, reworkOpen(selected) ? "🔧 זכוכית בתיקון במפעל" : "✓ תיקון זכוכית הושלם"),
+      (selected.glassRework.pieces || []).map((t, i) => React.createElement("div", { key: i }, "• ", t)),
+      React.createElement("div", { style: { color: colors.textLight, marginTop: 4 } }, selected.glassRework.reason, selected.glassRework.note ? " · " + selected.glassRework.note : "", " · ", selected.glassRework.by || "", " ", String(selected.glassRework.at || "").slice(0, 10)),
+      role === "admin" && React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8, marginTop: 8, flexWrap: "wrap" } }, React.createElement("span", null, "עלות הייצור החוזר (₪):"), React.createElement("input", { type: "number", min: 0, defaultValue: selected.glassRework.cost || "", onBlur: e => setReworkCost(selected.id, e.target.value === "" ? null : Number(e.target.value)), style: { ...inputStyle, width: 110 } }), React.createElement("span", { style: { color: colors.textMuted, fontSize: 12 } }, "נכנס לעלות העבודה בדוח הרווחיות"))),
+    selected.productType === "custom" && selected.measured && selected.measurementConfirmed && !reworkOpen(selected) && ["scheduled", "in-progress", "problem", "pending"].includes(selected.status) && (role === "admin" || role === "installer" && selected.glassReady) && React.createElement("button", { onClick: () => setShowRework(selected.id), style: { border: "1.5px solid #b42318", background: "#fff", color: "#b42318", borderRadius: 10, padding: "9px 14px", fontWeight: 700, fontSize: 14, cursor: "pointer", fontFamily: "inherit", marginBottom: 12 } }, "🔧 זכוכית שבורה / מידה לא טובה"), /*#__PURE__*/React.createElement("div", {
       style: {
         display: "flex",
         justifyContent: "space-between",
@@ -7418,9 +7454,9 @@ const WorkOrdersPage = ({
       l: "הושלם",
       v: selected.completedDate || "—"
     }, {
-      l: "סכום",
-      v: `₪${(Number(selected.amount) || 0).toLocaleString()}`
-    }].filter(f => role !== "installer" || !(f.l === "סכום" || f.l === "מתקין" || f.l === "הושלם" && !selected.completedDate)).map((f, i) => /*#__PURE__*/React.createElement("div", {
+      l: "מחיר לפי תעודת משלוח (לפני מע״מ)",
+      v: selected.madafDelivery && selected.madafDelivery.no ? `₪${(Number(selected.madafDelivery.preVat) || 0).toLocaleString()} · תעודה ${selected.madafDelivery.no}` : "— (אין תעודת משלוח עדיין)"
+    }].filter(f => role !== "installer" || !(f.l.startsWith("מחיר") || f.l === "מתקין" || f.l === "הושלם" && !selected.completedDate)).map((f, i) => /*#__PURE__*/React.createElement("div", {
       key: i,
       style: {
         padding: 10,
@@ -7705,16 +7741,7 @@ const WorkOrdersPage = ({
         color: colors.warning,
         fontSize: 12
       }
-    }, "\u05D7\u05E1\u05E8\u05D9\u05DD \u05DE\u05D7\u05D9\u05E8\u05D9\u05DD \u05D1\u05DE\u05D7\u05D9\u05E8\u05D5\u05DF"), selected.quoteApproved && selected.amount === selected.drawing.quote.total ? /*#__PURE__*/React.createElement("span", {
-      style: {
-        color: colors.success,
-        fontSize: 12,
-        fontWeight: 700
-      }
-    }, "\u2714 \u05DE\u05D7\u05D9\u05E8 \u05DE\u05D0\u05D5\u05E9\u05E8") : /*#__PURE__*/React.createElement(Button, {
-      size: "sm",
-      onClick: () => approveQuote(selected.id)
-    }, "\u05D0\u05E9\u05E8 \u05DE\u05D7\u05D9\u05E8 \u05D5\u05E2\u05D3\u05DB\u05DF \u05E1\u05DB\u05D5\u05DD"))), measureFrame && ReactDOM.createPortal(/*#__PURE__*/React.createElement("div", {
+        }, "חסרים מחירים במחירון"), /*#__PURE__*/React.createElement("span", { style: { color: colors.textMuted, fontSize: 12 } }, "(עלות לפי המחירון · המחיר ללקוח נקבע בתעודת המשלוח במדף)"))), measureFrame && ReactDOM.createPortal(/*#__PURE__*/React.createElement("div", {
       style: {
         position: "fixed",
         inset: 0,
@@ -7995,16 +8022,8 @@ const WorkOrdersPage = ({
     }, /*#__PURE__*/React.createElement(Button, {
       variant: "danger",
       size: "sm",
-      onClick: () => approveReject(selected.id, true)
-    }, Icons.check, " \u05D0\u05E9\u05E8 \u05D1\u05D9\u05D8\u05D5\u05DC \u2014 \u05D4\u05DE\u05D5\u05E6\u05E8 \u05D7\u05D6\u05E8 \u05DC\u05DE\u05D7\u05E1\u05DF"), /*#__PURE__*/React.createElement(Button, {
-      variant: "outline",
-      size: "sm",
-      onClick: () => approveReject(selected.id, false),
-      style: {
-        color: "#dc2626",
-        borderColor: "#dc2626"
-      }
-    }, Icons.check, " \u05D0\u05E9\u05E8 \u05D1\u05D9\u05D8\u05D5\u05DC \u2014 \u05D4\u05DE\u05D5\u05E6\u05E8 \u05DC\u05D0 \u05D7\u05D6\u05E8"), /*#__PURE__*/React.createElement(Button, {
+      onClick: () => approveReject(selected.id, isCollected(selected) ? null : false)
+    }, Icons.check, " אשר ביטול"), /*#__PURE__*/React.createElement("span", { style: { fontSize: 12, color: colors.textLight, alignSelf: "center" } }, isCollected(selected) ? "המקלחון נאסף מהמחסן – ההחזרה תאושר ע״י המחסנאי (החזרות) ואז על ידך" : "המקלחון לא נאסף מהמחסן"), /*#__PURE__*/React.createElement(Button, {
       variant: "outline",
       size: "sm",
       onClick: () => denyReject(selected.id)
@@ -11138,8 +11157,8 @@ const ModularDecodePage = ({ workOrders, setWorkOrders, installers, currentUser,
       activityLog: [...(x.activityLog || []), { ...logEntry("measurement_confirmed") }]
     } : x));
   };
-  const mixedNote = w => isMixedJob(w) && h("div", { style: { marginTop: 10, padding: "8px 10px", background: "#fdf4ff", border: "1.5px solid #a21caf", borderRadius: 10, fontSize: 12.5, color: "#86198f", fontWeight: 600 } },
-    mixedPreQuote(w) ? "🔀 בית מעורב – שלב 1 (לפני הצעת מחיר): בוחרים כאן את פריטי המודולרי ושומרים, ושומרים שרטוט לצירים הנקיים (\"פתח בשרטוט\"). המלאי לא יורד עכשיו. אחר כך המשרד מפיק הצעת מחיר במדף; כשתגיע תעודת משלוח – העבודה חוזרת לכאן לאישור ולהורדה מהמלאי."
+  const mixedNote = w => (isMixedJob(w) || mixedPreQuote(w)) && h("div", { style: { marginTop: 10, padding: "8px 10px", background: "#fdf4ff", border: "1.5px solid #a21caf", borderRadius: 10, fontSize: 12.5, color: "#86198f", fontWeight: 600 } },
+    mixedPreQuote(w) && !isMixedJob(w) ? "שלב 1 (לפני הצעת מחיר): בוחרים את הפריטים מהמלאי ושומרים. המלאי לא יורד עכשיו – הפענוח והמדידה נשמרים עד אישור ההצעה. אחרי תעודת המשלוח העבודה חוזרת לכאן לאישור ולהורדה מהמלאי." : mixedPreQuote(w) ? "🔀 בית מעורב – שלב 1 (לפני הצעת מחיר): בוחרים כאן את פריטי המודולרי ושומרים, ושומרים שרטוט לצירים הנקיים (\"פתח בשרטוט\"). המלאי לא יורד עכשיו. אחר כך המשרד מפיק הצעת מחיר במדף; כשתגיע תעודת משלוח – העבודה חוזרת לכאן לאישור ולהורדה מהמלאי."
       : "🔀 בית מעורב – שלב 2 (אחרי תעודת משלוח): הפריטים שנבחרו לפני ההצעה כבר כאן. \"אשר מדידה\" מוריד את הפרזול של הצירים הנקיים, \"אשר פענוח\" מוריד את המודולרי. לצירים נקיים מזמינים זכוכית מהמפעל — וכשהכל מוכן: \"מוכן — העבר למתקין\".");
   // mixed home, before the quote: save the chosen items as the plan for the quote (no stock movement)
   const planSave = w => {
@@ -11870,7 +11889,7 @@ const CleanupPanel = ({ workOrders, setWorkOrders }) => {
   };
   const box = { border: `1px solid ${colors.border}`, borderRadius: 10, padding: 14, marginTop: 12 };
   return h(Card, null,
-    h("div", { style: { fontWeight: 700, fontSize: 16 } }, "ניקוי נתונים לפני נובמבר"),
+    h("div", { style: { fontWeight: 700, fontSize: 16 } }, "ניקוי נתונים"),
     h("div", { style: { fontSize: 13, color: colors.textMuted, marginTop: 4 } }, "פעולה חד-פעמית לפני טעינת המלאי מהאקסל. כל מה שנמחק נשמר קודם ב-\"_trash\". נתוני נובמבר נשארים."),
     h("div", { style: box },
       h("div", { style: { fontWeight: 700 } }, "1. מלאי ישן"),
@@ -11881,6 +11900,17 @@ const CleanupPanel = ({ workOrders, setWorkOrders }) => {
       h("div", { style: { fontSize: 13, margin: "6px 0 4px" } }, `${oldJobs.length} עבודות יימחקו (${oldJobs.filter(w => w.status !== "completed").length} פתוחות) · ${keptJobs} של נובמבר נשארות`),
       h("div", { style: { fontSize: 12, color: colors.warning, marginBottom: 10 } }, "⚠ קודם לעדכן את הסנכרון במחשב במשרד (גרסה 3/11)."),
       h(Button, { size: "sm", variant: "danger", disabled: !!busy || !oldJobs.length, onClick: deleteJobs }, "מחק עבודות לפני נובמבר")),
+    h("div", { style: box },
+      h("div", { style: { fontWeight: 700 } }, "3. קריאות שירות לדוגמה"),
+      h("div", { style: { fontSize: 13, margin: "6px 0 10px" } }, "SC-001, SC-002, SC-003 הן דוגמאות שנשתלו בהתקנה (רונית אברהם, שלמה דויד, מיכל גרין)."),
+      h(Button, { size: "sm", variant: "danger", disabled: !!busy, onClick: async () => { if (!ask("למחוק את 3 קריאות השירות לדוגמה?")) return; setBusy("sc"); let ok = 0; for (const id of ["SC-001", "SC-002", "SC-003"]) if (await fsDeleteDocument("serviceCalls", id)) ok++; setMsg(`✅ נמחקו ${ok} קריאות לדוגמה – לרענן את הדף`); setBusy(""); } }, "מחק קריאות לדוגמה")),
+    h("div", { style: box },
+      h("div", { style: { fontWeight: 700 } }, "4. עבודות ידניות פתוחות (לא ממדף)"),
+      h("div", { style: { fontSize: 13, margin: "6px 0 10px", color: colors.textMuted } }, "עבודות שנפתחו ידנית במערכת ועדיין פתוחות – בדרך כלל בדיקות. מחיקה מעבירה עותק ל-_trash."),
+      workOrders.filter(w => w.source !== "madaf" && !["completed", "cancelled", "rejected"].includes(w.status)).map(w => h("div", { key: w.id, style: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, padding: "6px 0", borderTop: `1px solid ${colors.border}`, fontSize: 13 } },
+        h("span", null, h("b", null, w.customerName || "—"), " · ", w.id, " · ", w.product || "", " · ", w.installerName || "ללא מתקין"),
+        h(Button, { size: "sm", variant: "outline", disabled: !!busy, onClick: () => { if (!confirm(`למחוק את ${w.customerName || w.id}?`)) return; setWorkOrders(prev => prev.filter(x => x.id !== w.id)); setMsg("✅ נמחק " + (w.customerName || w.id)); } }, "מחק"))),
+      !workOrders.some(w => w.source !== "madaf" && !["completed", "cancelled", "rejected"].includes(w.status)) && h("div", { style: { fontSize: 13, color: colors.success } }, "אין עבודות ידניות פתוחות")),
     msg && h("div", { style: { marginTop: 12, fontWeight: 600 } }, msg));
 };
 const InventoryPage = ({ workOrders = [], setWorkOrders }) => {
@@ -12330,7 +12360,8 @@ function jobProductionCost(job) {
   const items = job && job.drawing && Array.isArray(job.drawing.items) ? job.drawing.items.filter(i => i && i.cost) : [];
   if (!items.length) return { status: "nodrawing" };
   if (!job.measurementConfirmed) return { status: "waiting" };
-  return { status: "ok", cost: items.reduce((s, i) => s + (Number(i.cost.total) || 0), 0), partial: items.some(i => i.cost.missing) };
+  const rw = job.glassRework ? Number(job.glassRework.cost) || 0 : 0;
+  return { status: "ok", cost: items.reduce((s, i) => s + (Number(i.cost.total) || 0), 0) + rw, partial: items.some(i => i.cost.missing) || !!(job.glassRework && job.glassRework.cost == null) };
 }
 // Delivery notes to stores (no end customer) are sales too — shown and taken from stock like jobs
 const supplyAsJob = s => ({ id: s.id, customerName: s.store, madafDelivery: s.madafDelivery, status: s.status === "pending" ? "pending" : "completed", isSupply: true });
@@ -12616,7 +12647,7 @@ const ProfitReport = ({ workOrders, installers }) => {
           const out = [h("tr", { key: r.d.no, onClick: () => setOpen(open === r.d.no ? null : r.d.no), style: { borderBottom: `1px solid ${colors.border}`, cursor: "pointer", background: open === r.d.no ? colors.bg : "transparent" } },
             h("td", { style: cell }, (open === r.d.no ? "▾ " : "▸ ") + new Date(madafDate(r.d.date)).toLocaleDateString("he-IL")),
             h("td", { style: cell }, r.d.no), h("td", { style: { ...cell, fontWeight: 600 } }, r.job.customerName), h("td", { style: cell }, r.d.store),
-            h("td", { style: cell }, r.installer || "—"), h("td", { style: cell }, r.job.isSupply ? h(Badge, { color: colors.purple || colors.primary }, "אספקה לחנות") : r.job.status === "completed" ? h(Badge, { color: colors.success }, "הושלם") : h(Badge, { color: colors.primary }, "פתוח")),
+            h("td", { style: cell }, r.installer || "—"), h("td", { style: cell }, r.job.isSupply ? h(Badge, { color: colors.purple || colors.primary }, "אספקה לחנות") : r.job.glassRework ? h(Badge, { color: colors.danger }, reworkOpen(r.job) ? "🔧 זכוכית בתיקון" : "זכוכית תוקנה") : r.job.status === "completed" ? h(Badge, { color: colors.success }, "הושלם") : h(Badge, { color: colors.primary }, "פתוח")),
             h("td", { style: { ...cell, fontWeight: 600 } }, fmtILS(r.price)),
             h("td", { style: cell }, fmtILS(r.cost), r.missing ? h("span", { style: { color: colors.warning, fontWeight: 700 }, title: "חסרה עלות לחלק מהפריטים" }, " *") : null),
             h("td", { style: { ...cell, fontWeight: 600, color: r.profit >= 0 ? colors.success : colors.danger } }, r.missing ? "—" : fmtILS(r.profit)),
@@ -15250,8 +15281,7 @@ function App() {
           didSeed = true;
         }
         if (fsServiceCalls && fsServiceCalls.length === 0) {
-          await fsSeedCollection(COLLECTIONS.serviceCalls, SERVICE_CALLS_DATA);
-          fsServiceCalls = SERVICE_CALLS_DATA;
+          fsServiceCalls = [];
           didSeed = true;
         }
         if (fsInstallers && fsInstallers.length === 0) {
@@ -15644,10 +15674,6 @@ function App() {
     key: "accounts",
     label: "ניהול חשבונות",
     icon: Icons.accounts
-  }, {
-    key: "integration",
-    label: "ברק CRM",
-    icon: Icons.integration
   }];
   adminNav.splice(adminNav.findIndex(n => n.key === "inventory"), 0, { key: "pickups", label: "איסופים מהמחסן", icon: Icons.inventory });
   const warehouseNav = [{ key: "wh_pickups", label: "איסופים", icon: Icons.inventory }, { key: "wh_returns", label: "החזרות", icon: Icons.arrowUp }, { key: "wh_log", label: "נמסר", icon: Icons.check }];
@@ -15679,7 +15705,7 @@ function App() {
   const navBadge = key => key === "service" ? serviceCalls.filter(sc => sc.status !== "completed" && (!sc.assignedInstallerId || sc.assignedInstallerId === currentUser.installerId)).length
     : key === "waiting_glass" ? workOrders.filter(w => isWaitGlassJob(w, "") && w.installerId === currentUser.installerId).length
     : key === "orders" ? workOrders.filter(w => w.installerId === currentUser.installerId && w.status === "pending" && isActionableJob(w)).length
-    : key === "wh_pickups" ? PK.pickups.filter(p => p.status === "approved").length
+    : key === "wh_pickups" ? PK.pickups.filter(p => p.status === "sent" || p.status === "approved" && !p.timeOk).length
     : key === "wh_returns" ? workOrders.filter(w => ["cancelled", "rejected"].includes(w.status) && (PK.locks[String(w.id)] || {}).status === "collected").length
     : key === "pickup" ? PK.pickups.filter(p => p.installerId === currentUser.installerId && (p.status === "ready" || p.proposal && p.proposal.by === "wh")).length : 0;
   const renderPage = () => {
@@ -15928,8 +15954,8 @@ function App() {
     const preProductionCount = item.key === "pre_production" ? workOrders.filter(isPreProdJob).length : 0;
     const waitingGlassCount = item.key === "waiting_glass" ? workOrders.filter(w => isWaitGlassJob(w, isAdmin ? "admin" : "")).length : 0;
     const modularCount = item.key === "modular" ? workOrders.filter(isWaitingModular).length : 0;
-    const pickupCount = item.key === "pickups" ? PK.pickups.filter(p => p.status === "sent").length + Object.values(PK.locks).filter(l => l.status === "return_marked").length
-      : item.key === "wh_pickups" ? PK.pickups.filter(p => p.status === "approved").length
+    const pickupCount = item.key === "pickups" ? Object.values(PK.locks).filter(l => l.status === "return_marked").length
+      : item.key === "wh_pickups" ? PK.pickups.filter(p => p.status === "sent" || p.status === "approved" && !p.timeOk).length
       : item.key === "wh_returns" ? workOrders.filter(w => ["cancelled", "rejected"].includes(w.status) && (PK.locks[String(w.id)] || {}).status === "collected").length
       : item.key === "pickup" ? PK.pickups.filter(p => p.installerId === currentUser.installerId && p.status === "ready").length : 0;
     const badgeCount = openSCCount || preProductionCount || waitingGlassCount || modularCount || pickupCount;
