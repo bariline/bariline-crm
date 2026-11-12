@@ -150,7 +150,7 @@ const FIREBASE_CONFIG = {
   appId: "1:1042161550667:web:61a07d439a34c4705b94ce"
 };
 
-const APP_VERSION = "2026-11-11-tutorial-2";
+const APP_VERSION = "2026-11-12-schedule-first";
 // ─── Password hashing — passwords are never stored in plain text ────
 async function hashPassword(accountId, pw) {
   const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode("bariline-v1|" + String(accountId) + "|" + String(pw || "")));
@@ -477,7 +477,9 @@ const measuredOutside = w => !!(w && w.measured && !currentMeasurement(w) && !w.
 const drawingItemIsModular = it => textIsModular(it && it.snapshot && it.snapshot.model || "");
 // Modular flow: measured → (office makes the quote in Madaf) → delivery note → פענוח (אשר מדידה + פענוח there)
 const hasMadafDelivery = w => !!(w && (w.madafDeliveryNo || w.madafDelivery && w.madafDelivery.no));
-const isWaitingModular = w => w.productType === "custom" && w.status !== "completed" && w.measured && !w.glassReady && !w.modularDecode && isModularJob(w) && (w.measurementConfirmed || hasMadafDelivery(w) || w.modularReady);
+// a mixed home is decoded right after the measurement (so the office can quote it); stock leaves only after the delivery note
+const mixedPreQuote = w => isMixedJob(w) && !w.modularPlanned && !hasMadafDelivery(w) && !w.measurementConfirmed && !w.modularReady;
+const isWaitingModular = w => w.productType === "custom" && w.status !== "completed" && w.measured && !w.glassReady && !w.modularDecode && isModularJob(w) && (w.measurementConfirmed || hasMadafDelivery(w) || w.modularReady || mixedPreQuote(w));
 // "מדידות לפני ייצור": a modular job leaves it as soon as there is a quote / delivery note (or the admin sent it on)
 // "ממתין לזכוכית": custom jobs sent to production. For the admin a modular job joins only after its פענוח
 // (until then it waits on the "פענוח מודולרי" page). After "מוכן" (glassReady) it goes to the installer.
@@ -486,6 +488,7 @@ function isPreProdJob(w) {
   if (!(w.productType === "custom" && w.status !== "completed" && w.measured && !w.measurementConfirmed)) return false;
   // a job whose quote waits for the store lives only in "הצעות מחיר ממתינות"
   if (w.quoteStatus === "pending") return false;
+  if (mixedPreQuote(w)) return false; // first in פענוח מודולרי
   return !(isModularJob(w) && (w.madafQuote || hasMadafDelivery(w) || w.modularReady));
 }
 // Layouts of the modular models = the layouts of their צירים נקיים twins (same as the measurement page)
@@ -5256,12 +5259,14 @@ const WarehousePage = ({ workOrders, installers, currentUser, view }) => {
 // ─── Installer screens: one card style, the job list in 3 tabs, "nearby" popup ────
 const STRIPE = { plan: ["#fdf1df", "#b45309"], measure: ["#efe9fd", "#6d28d9"], install: ["#e6eefc", "#1d5fd1"], service: ["#fdebe1", "#c2410c"], wait: ["#edf1f4", "#64748b"], done: ["#e3f4e8", "#15803d"], problem: ["#fde7e4", "#b42318"] };
 const isWaitGlassInst = w => w.productType === "custom" && w.measured && !w.glassReady && !["completed", "cancelled", "rejected"].includes(w.status);
+// a job the installer still has to schedule with the customer: no date, or a date that passed without the job starting
+const needsDate = w => !["in-progress", "problem", "completed", "cancelled", "rejected"].includes(w.status) && (!w.scheduledDate || w.scheduledDate < todayISO());
 function jobStripe(w) {
   if (w.status === "completed") return ["done", "✓ בוצע"];
   if (w.status === "problem") return ["problem", "⚠ בעיה"];
   if (isWaitGlassInst(w)) return ["wait", "⏳ בהכנה"];
   const k = jobKindNow(w);
-  if (w.status === "pending" || !w.scheduledDate && w.status !== "in-progress") return ["plan", k === "measure" ? "📅 לתאם מדידה" : "📅 לתאם התקנה"];
+  if (w.status === "pending" || needsDate(w)) return ["plan", w.scheduledDate && w.scheduledDate < todayISO() ? "📅 התאריך עבר – לתאם מחדש" : k === "measure" ? "📅 לתאם מדידה" : "📅 לתאם התקנה"];
   if (w.status === "in-progress") return ["install", "🔧 בביצוע"];
   return k === "measure" ? ["measure", "📏 למדוד"] : ["install", "🔧 להתקין"];
 }
@@ -5347,33 +5352,34 @@ const NearbyNow = ({ workOrders, serviceCalls, installerId, setSelected, goServi
 };
 
 // ─── "היום שלי" — the installer's start screen: today, then what still needs a date ────
-const MyDay = ({ workOrders, serviceCalls, installerId, setSelected, goService }) => {
+const MyDay = ({ workOrders, serviceCalls, installerId, setSelected, goService, goPlan }) => {
   const h = React.createElement;
-  const [all, setAll] = useState(false);
+  const [week, setWeek] = useState(false);
   const today = todayISO(), tomorrow = addDaysISO(today, 1);
   const mine = (workOrders || []).filter(w => w.installerId === installerId && isOpenJob(w));
   const myScs = (serviceCalls || []).filter(sc => sc.assignedInstallerId === installerId && sc.status !== "completed");
   const t = it => String(it.scheduledTime || "");
-  const todayItems = mine.filter(w => w.scheduledDate === today).map(w => ({ w })).concat(myScs.filter(sc => sc.scheduledDate === today).map(sc => ({ sc }))).sort((a, b) => t(a.w || a.sc).localeCompare(t(b.w || b.sc)));
-  const nTomorrow = mine.filter(w => w.scheduledDate === tomorrow).length + myScs.filter(sc => sc.scheduledDate === tomorrow).length;
-  const waiting = mine.filter(w => isActionableJob(w) && !isWaitGlassInst(w) && w.scheduledDate !== today && (w.status === "pending" || !w.scheduledDate || w.scheduledDate < today)).map(w => ({ w, k: jobAddedKey(w) }))
-    .concat(myScs.filter(sc => !sc.scheduledDate).map(sc => ({ sc, k: sc.createdDate || "" }))).sort((a, b) => String(a.k).localeCompare(String(b.k)));
-  const later = mine.filter(w => w.scheduledDate && w.scheduledDate > tomorrow).length;
-  const list = all ? waiting : waiting.slice(0, 3);
+  const onDay = d => mine.filter(w => w.scheduledDate === d && !needsDate(w)).map(w => ({ w })).concat(myScs.filter(sc => sc.scheduledDate === d).map(sc => ({ sc }))).sort((a, b) => t(a.w || a.sc).localeCompare(t(b.w || b.sc)));
+  const todayItems = onDay(today);
+  const nTomorrow = onDay(tomorrow).length;
+  const toPlan = mine.filter(w => isActionableJob(w) && !isWaitGlassInst(w) && (w.status === "pending" || needsDate(w))).length + myScs.filter(sc => !sc.scheduledDate).length;
+  const days = Array.from({ length: 7 }, (_, k) => addDaysISO(today, k)).map(d => ({ d, items: onDay(d) }));
+  const weekN = days.reduce((n, x) => n + x.items.length, 0);
   const card = i => h(InstCard, { key: (i.w ? "w" : "s") + (i.w || i.sc).id, w: i.w, sc: i.sc, workOrders, installerId, onOpen: () => i.w ? setSelected(i.w) : goService && goService() });
+  const planBtn = toPlan ? h("button", { onClick: () => goPlan && goPlan(), style: { width: "100%", border: 0, background: "#fdf1df", color: "#b45309", borderRadius: 12, padding: 12, fontWeight: 800, fontSize: 15, cursor: "pointer", fontFamily: "inherit", marginTop: 8 } }, "📅 " + toPlan + (toPlan === 1 ? " עבודה מחכה" : " עבודות מחכות") + " שתתאם עם הלקוח ›") : null;
   return h("div", null,
     h(NearbyNow, { workOrders, serviceCalls, installerId, setSelected, goService }),
     h("div", { style: { background: "linear-gradient(135deg,#1e293b,#334155)", borderRadius: 16, padding: 14, marginBottom: 16, color: "#fff" } },
-      h("div", { style: { display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8, flexWrap: "wrap", marginBottom: 8 } },
-        h("div", { style: { fontWeight: 800, fontSize: 19 } }, new Date().toLocaleDateString("he-IL", { weekday: "long", day: "numeric", month: "numeric" })),
-        h("div", { style: { fontSize: 12.5, opacity: .85 } }, todayItems.length + " היום", nTomorrow ? " · מחר: " + nTomorrow : "", later ? " · בהמשך: " + later : "")),
+      h("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap", marginBottom: 8 } },
+        h("div", null, h("div", { style: { fontWeight: 800, fontSize: 19 } }, week ? "השבוע" : new Date().toLocaleDateString("he-IL", { weekday: "long", day: "numeric", month: "numeric" })),
+          h("div", { style: { fontSize: 12.5, opacity: .85 } }, week ? weekN + " מתוזמנות ב-7 הימים הקרובים" : todayItems.length + " היום" + (nTomorrow ? " · מחר: " + nTomorrow : ""))),
+        h("button", { onClick: () => setWeek(!week), style: { border: "1.5px solid rgba(255,255,255,.5)", background: week ? "#fff" : "transparent", color: week ? "#1e293b" : "#fff", borderRadius: 99, padding: "6px 12px", fontWeight: 700, fontSize: 13, cursor: "pointer", fontFamily: "inherit" } }, week ? "☀️ היום" : "📆 השבוע")),
       h("div", { style: { color: colors.text } },
-        todayItems.length ? todayItems.map(card) : h("div", { style: { background: "rgba(255,255,255,.1)", color: "#fff", borderRadius: 10, padding: 10, fontSize: 13.5, marginBottom: 8 } }, "אין עבודות עם תאריך להיום."),
-        waiting.length ? h("div", { style: { color: "#fff", fontWeight: 800, fontSize: 14, margin: "8px 0" } }, "📅 מחכות לתיאום (" + waiting.length + ")") : null,
-        list.map(card),
-        waiting.length > 3 ? h("button", { onClick: () => setAll(!all), style: { width: "100%", border: 0, background: "rgba(255,255,255,.15)", color: "#fff", borderRadius: 10, padding: 10, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" } }, all ? "הצג פחות" : "הצג את כל " + waiting.length) : null)));
+        !week && (todayItems.length ? todayItems.map(card) : h("div", { style: { background: "rgba(255,255,255,.1)", color: "#fff", borderRadius: 10, padding: 12, fontSize: 14, textAlign: "center" } }, "אין עבודות מתוזמנות להיום")),
+        week && (weekN ? days.filter(x => x.items.length).map(x => h("div", { key: x.d }, h("div", { style: { color: "#fff", fontWeight: 800, fontSize: 14, margin: "8px 0 6px" } }, x.d === today ? "היום" : x.d === tomorrow ? "מחר" : dayLabel(x.d), " · ", x.items.length), x.items.map(card)))
+          : h("div", { style: { background: "rgba(255,255,255,.1)", color: "#fff", borderRadius: 10, padding: 12, fontSize: 14, textAlign: "center" } }, "אין עבודות מתוזמנות השבוע")),
+        planBtn)));
 };
-
 // ─── Guided tutorial (הדרכה): shown once per account on the first login; replay any time from the "?" button ────
 // A step = { title, text, example?, sel? (element to highlight, by [data-tour]), page? (navigate first), sidebar? }
 const TOUR_VER = "v1";
@@ -5383,7 +5389,7 @@ const tourMarkSeen = acc => { try { localStorage.setItem(tourKey(acc), new Date(
 const TOURS = {
   installer: [
     { title: "ברוך הבא ל-Bariline 👋", text: "שתי דקות ונסביר הכל.\nאפשר להפעיל את ההדרכה שוב בכל זמן מכפתור ? שלמעלה." },
-    { page: "today", sel: '[data-tour="nav-today"]', title: "☀️ היום שלי", text: "המסך הראשי.\nלמעלה: העבודות של היום לפי שעה.\nמתחת: עבודות שמחכות שתתאם תאריך עם הלקוח.", example: "נכנסה עבודה קרובה למקום שאתה בו היום? תקפוץ הודעה \"📍 אתה היום ב…\" עם כפתור להתקשר ולתאם." },
+    { page: "today", sel: '[data-tour="nav-today"]', title: "☀️ היום שלי", text: "המסך הראשי: רק מה שתיאמת להיום, לפי שעה.\n\"📆 השבוע\" מראה את 7 הימים הקרובים.\nעבודות שעוד לא תיאמת – בכפתור הכתום למטה, או ב\"העבודות שלי ← לתאם\".", example: "נכנסה עבודה קרובה למקום שאתה בו היום? תקפוץ הודעה \"📍 אתה היום ב…\" עם כפתור להתקשר ולתאם." },
     { page: "today", sel: '[data-tour="card"]', title: "כרטיס עבודה", text: "הפס הצבעוני למעלה אומר מה הצעד הבא:\n📅 לתאם · 📏 למדוד · 🔧 להתקין · ⏳ בהכנה\nלמטה: 🧭 נווט (Waze) · 📞 התקשר · פתח.", example: "תגית ירוקה 🧭 = יש לך עוד עבודה באותו אזור. כדאי לתאם לאותו יום." },
     { page: "today", sel: '[data-tour="card"] button', title: "פתח ›", text: "בתוך העבודה יש כפתור אחד גדול: הצעד הבא.\nלוחצים עליו ותמיד יודעים מה לעשות:\n📅 קבע תאריך · 📏 פתח מדידה · 📷 התחל עבודה + צלם לפני · ✅ סיים + צלם אחרי" },
     { page: "orders", sel: '[data-tour="seg"]', title: "העבודות שלי", text: "שלוש לשוניות:\n📅 לתאם – עבודות בלי תאריך\n🗓 מתוזמן – לפי תאריך\n✓ בוצע – 30 הימים האחרונים" },
@@ -5494,6 +5500,7 @@ const WorkOrdersPage = ({
 }) => {
   const isMobile = useIsMobile();
   const todayPage = initialFilter === "today"; // installer menu "היום שלי"
+  const [urgentOpen, setUrgentOpen] = useState(null);
   const instList = role === "installer" && !todayPage && initialFilter !== "waiting_glass_nav"; // installer "העבודות שלי": the new list
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState(todayPage ? "all" : initialFilter || "all");
@@ -5717,7 +5724,7 @@ const WorkOrdersPage = ({
     };
     if (!wo.measurementConfirmed && isModularJob(wo)) return {
       step: 2,
-      label: hasMadafDelivery(wo) || wo.modularReady ? "בפענוח מודולרי — לאשר מדידה ולבחור פריטים" : wo.madafQuote ? "ממתין לאישור הצעת המחיר" : "מדידה בוצעה — להפיק הצעת מחיר במדף",
+      label: hasMadafDelivery(wo) || wo.modularReady ? "בפענוח מודולרי — לאשר מדידה ולבחור פריטים" : wo.madafQuote ? "ממתין לאישור הצעת המחיר" : isMixedJob(wo) && wo.modularPlanned ? "פוענח + שרטוט שמורים — להפיק הצעת מחיר במדף" : "מדידה בוצעה — להפיק הצעת מחיר במדף",
       color: "#f59e0b",
       icon: Icons.inventory
     };
@@ -6029,9 +6036,9 @@ const WorkOrdersPage = ({
     let b = null; // [label, color, onClick]
     if (w.status === "completed") b = ["✓ העבודה הושלמה", "#15803d", null];
     else if (["in-progress", "problem"].includes(w.status)) b = ["✅ סיים עבודה + צלם אחרי", "#15803d", photo("after", "finish")];
-    else if (w.productType === "custom" && !w.measured) b = w.status === "pending" && !w.scheduledDate ? ["📅 קבע מועד למדידה", "#b45309", () => setShowTakeJobModal(w.id)] : ["📏 פתח טופס מדידה", "#6d28d9", () => openMeasureForm(w, "new")];
+    else if (w.productType === "custom" && !w.measured) b = w.status === "pending" || needsDate(w) ? [w.scheduledDate && w.scheduledDate < todayISO() ? "📅 התאריך עבר – קבע מועד מחדש" : "📅 קבע מועד למדידה", "#b45309", () => setShowTakeJobModal(w.id)] : ["📏 פתח טופס מדידה", "#6d28d9", () => openMeasureForm(w, "new")];
     else if (isWaitGlassInst(w)) b = ["⏳ בהכנה – תקבל הודעה כשמוכן", "#64748b", null];
-    else if (w.status === "pending") b = ["📅 קבע תאריך עם הלקוח", "#b45309", () => setShowTakeJobModal(w.id)];
+    else if (w.status === "pending" || needsDate(w)) b = [w.scheduledDate && w.scheduledDate < todayISO() ? "📅 התאריך עבר – קבע תאריך מחדש" : "📅 קבע תאריך עם הלקוח", "#b45309", () => setShowTakeJobModal(w.id)];
     else if (w.status === "scheduled" && (std || w.glassReady && w.glassReadyMatched)) b = mustPick ? [inActivePickup(w) ? "📦 בבקשת איסוף – מחכה למחסן" : "📦 קודם לאסוף מהמחסן", "#1d5fd1", () => { setSelected(null); setPage && setPage("pickup"); }] : ["📷 התחל עבודה + צלם לפני", "#1d5fd1", photo("before", "start")];
     if (!b) return null;
     const small = (t, href) => h("a", { href, target: href.startsWith("http") ? "_blank" : undefined, rel: "noopener", style: { flex: 1, minHeight: 44, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: 10, border: `1px solid ${colors.border}`, background: "#fff", color: colors.text, fontWeight: 700, fontSize: 14, textDecoration: "none" } }, t);
@@ -6497,33 +6504,17 @@ const WorkOrdersPage = ({
       const d = getDaysRemaining(w.createdDate || w.scheduledDate);
       return d <= 3;
     });
-    return urgent.length > 0 ? /*#__PURE__*/React.createElement("div", {
-      style: {
-        padding: 12,
-        background: urgent.some(w => getDaysRemaining(w.createdDate || w.scheduledDate) < 0) ? colors.dangerLight : colors.warningLight,
-        borderRadius: 10,
-        marginBottom: 14,
-        display: "flex",
-        alignItems: "center",
-        gap: 10
-      }
-    }, Icons.warning, /*#__PURE__*/React.createElement("div", {
-      style: {
-        flex: 1
-      }
-    }, /*#__PURE__*/React.createElement("div", {
-      style: {
-        fontSize: 13,
-        fontWeight: 700,
-        color: urgent.some(w => getDaysRemaining(w.createdDate || w.scheduledDate) < 0) ? colors.danger : "#d97706"
-      }
-    }, urgent.filter(w => getDaysRemaining(w.createdDate || w.scheduledDate) < 0).length > 0 && `${urgent.filter(w => getDaysRemaining(w.createdDate || w.scheduledDate) < 0).length} עבודות באיחור! `, urgent.filter(w => getDaysRemaining(w.createdDate || w.scheduledDate) >= 0).length > 0 && `${urgent.filter(w => getDaysRemaining(w.createdDate || w.scheduledDate) >= 0).length} עבודות מתקרבות לדד-ליין`), /*#__PURE__*/React.createElement("div", {
-      style: {
-        fontSize: 12,
-        color: colors.textLight
-      }
-    }, urgent.map(w => `${w.id} ${w.customerName} (${getDaysRemaining(w.createdDate || w.scheduledDate)} ימים)`).join(" • ")))) : null;
-  })(), todayPage && React.createElement(MyDay, { workOrders, serviceCalls, installerId, setSelected, goService: () => setPage && setPage("service") }), !todayPage && /*#__PURE__*/React.createElement("div", {
+    const late = urgent.filter(w => getDaysRemaining(w.createdDate || w.scheduledDate) < 0), soon = urgent.filter(w => getDaysRemaining(w.createdDate || w.scheduledDate) >= 0);
+    const chip = (list, bg, fg, label) => list.length ? /*#__PURE__*/React.createElement("button", { key: label, onClick: () => setUrgentOpen(urgentOpen === label ? null : label), title: "לחיצה לפירוט",
+      style: { display: "inline-flex", alignItems: "center", gap: 6, border: `1px solid ${fg}33`, background: bg, color: fg, borderRadius: 99, padding: "4px 12px", fontSize: 12.5, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" } }, label === "late" ? "🔴" : "⏰", " ", list.length, " ", label === "late" ? "באיחור" : "מתקרבות לדד-ליין", urgentOpen === label ? " ▴" : " ▾") : null;
+    const openList = urgentOpen === "late" ? late : urgentOpen === "soon" ? soon : [];
+    return urgent.length > 0 ? /*#__PURE__*/React.createElement("div", { style: { marginBottom: 12 } },
+      /*#__PURE__*/React.createElement("div", { style: { display: "flex", gap: 6, flexWrap: "wrap" } }, chip(late, colors.dangerLight, colors.danger, "late"), chip(soon, colors.warningLight, "#b45309", "soon")),
+      openList.length > 0 && /*#__PURE__*/React.createElement("div", { style: { marginTop: 6, background: colors.card, border: `1px solid ${colors.border}`, borderRadius: 10, padding: "6px 10px", fontSize: 12.5, display: "flex", flexDirection: "column", gap: 2 } },
+        openList.map(w => /*#__PURE__*/React.createElement("button", { key: w.id, onClick: () => setSelected(w), style: { display: "flex", justifyContent: "space-between", gap: 8, border: 0, background: "none", textAlign: "right", cursor: "pointer", fontFamily: "inherit", fontSize: 12.5, padding: "3px 0", color: colors.text } },
+          /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement("b", null, w.customerName), " ", /*#__PURE__*/React.createElement("span", { style: { color: colors.textMuted } }, w.address || "")),
+          /*#__PURE__*/React.createElement("span", { style: { color: getDaysRemaining(w.createdDate || w.scheduledDate) < 0 ? colors.danger : "#b45309", fontWeight: 700, whiteSpace: "nowrap" } }, getDaysRemaining(w.createdDate || w.scheduledDate) < 0 ? Math.abs(getDaysRemaining(w.createdDate || w.scheduledDate)) + " ימים באיחור" : getDaysRemaining(w.createdDate || w.scheduledDate) + " ימים"))))) : null;
+  })(), todayPage && React.createElement(MyDay, { workOrders, serviceCalls, installerId, setSelected, goService: () => setPage && setPage("service"), goPlan: () => setPage && setPage("orders") }), !todayPage && /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       gap: 10,
@@ -11120,7 +11111,8 @@ const ModularDecodePage = ({ workOrders, setWorkOrders, installers, currentUser,
         })))),
       lines.length > 0 && h("div", { style: { fontSize: 12, color: colors.textLight, marginTop: 6 } }, "עלות משוערת: ", h("b", null, fmtILS(est)), missingCost ? " (חסרים מחירים)" : ""),
       h("div", { style: { display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" } },
-        h(Button, { size: "sm", variant: "success", disabled: busy || !lines.length, onClick: () => finish(w) }, Icons.check, " אשר פענוח והורד מהמלאי"),
+        mixedPreQuote(w) ? h(Button, { size: "sm", variant: "success", disabled: busy || !lines.length, onClick: () => planSave(w) }, Icons.check, " 💾 שמור פענוח להצעת מחיר (בלי הורדה מהמלאי)")
+          : h(Button, { size: "sm", variant: "success", disabled: busy || !lines.length, onClick: () => finish(w) }, Icons.check, " אשר פענוח והורד מהמלאי"),
         h(Button, { size: "sm", variant: "outline", disabled: busy || !drafts[w.id], onClick: () => saveDraft(w) }, "שמור טיוטה"),
         h(Button, { size: "sm", variant: "outline", disabled: !lines.length, onClick: () => printAssemblySheet(w, lines, ((plans[w.id] || {}).options || []).filter(o => o.rows).map(o => ({ label: o.label, rows: o.rows.map(r => r.side + ": " + r.text) })), ((plans[w.id] || {}).options || []).flatMap(o => o.warnings || []), stockItems, false) }, "🖨 דף הרכבה"),
         h(Button, { size: "sm", variant: "ghost", onClick: () => { setOpenId(null); setSearch(""); } }, "סגור")));
@@ -11147,7 +11139,16 @@ const ModularDecodePage = ({ workOrders, setWorkOrders, installers, currentUser,
     } : x));
   };
   const mixedNote = w => isMixedJob(w) && h("div", { style: { marginTop: 10, padding: "8px 10px", background: "#fdf4ff", border: "1.5px solid #a21caf", borderRadius: 10, fontSize: 12.5, color: "#86198f", fontWeight: 600 } },
-    "🔀 בית עם שני סוגים: מודולרי + צירים נקיים. כאן בוחרים פריטים רק למודולרי. לצירים נקיים: לשמור שרטוט (\"פתח בשרטוט\") ולהזמין זכוכית מהמפעל — ורק כשהכל מוכן ללחוץ \"מוכן — העבר למתקין\".");
+    mixedPreQuote(w) ? "🔀 בית מעורב – שלב 1 (לפני הצעת מחיר): בוחרים כאן את פריטי המודולרי ושומרים, ושומרים שרטוט לצירים הנקיים (\"פתח בשרטוט\"). המלאי לא יורד עכשיו. אחר כך המשרד מפיק הצעת מחיר במדף; כשתגיע תעודת משלוח – העבודה חוזרת לכאן לאישור ולהורדה מהמלאי."
+      : "🔀 בית מעורב – שלב 2 (אחרי תעודת משלוח): הפריטים שנבחרו לפני ההצעה כבר כאן. \"אשר מדידה\" מוריד את הפרזול של הצירים הנקיים, \"אשר פענוח\" מוריד את המודולרי. לצירים נקיים מזמינים זכוכית מהמפעל — וכשהכל מוכן: \"מוכן — העבר למתקין\".");
+  // mixed home, before the quote: save the chosen items as the plan for the quote (no stock movement)
+  const planSave = w => {
+    const items = linesOf(w).filter(l => l.qty > 0);
+    if (!items.length) return alert("לא נבחרו פריטים");
+    setWorkOrders(prev => prev.map(x => x.id === w.id ? { ...x, modularDraft: { items, at: new Date().toISOString() }, modularPlanned: true, activityLog: [...(x.activityLog || []), { ...logEntry("פענוח מודולרי נשמר להצעת מחיר: " + items.map(l => `${l.name} × ${fmtQty(l.qty)}`).join(", ")) }] } : x));
+    setDrafts(prev => { const n = { ...prev }; delete n[w.id]; return n; });
+    setOpenId(null);
+  };
   const waitingCard = w => {
     const open = openId === w.id;
     const lines = linesOf(w);
@@ -11156,14 +11157,17 @@ const ModularDecodePage = ({ workOrders, setWorkOrders, installers, currentUser,
       measureBox(w),
       mixedNote(w),
       h(ModularInfo, { job: w, setWorkOrders }),
+      mixedPreQuote(w) ? (open ? picker(w) : h("div", { style: { display: "flex", alignItems: "center", gap: 10, marginTop: 10, flexWrap: "wrap" } },
+        h(Button, { size: "sm", onClick: () => { setOpenId(w.id); setSearch(""); } }, Icons.inventory, " בחר פריטים לפענוח (לפני הצעת מחיר)"),
+        lines.length > 0 && h("span", { style: { fontSize: 12, color: colors.textMuted } }, "טיוטה: " + lines.map(l => `${l.name} × ${fmtQty(l.qty)}`).join(", ")))) :
       !w.measurementConfirmed && h("div", { style: { display: "flex", alignItems: "center", gap: 10, marginTop: 10, flexWrap: "wrap" } },
         h("span", { style: { fontSize: 13, fontWeight: 700, color: colors.purple } }, "שלב 1:"),
         h(Button, { size: "sm", variant: "success", onClick: () => confirmHere(w) }, Icons.check, " אשר מדידה"),
         h("span", { style: { fontSize: 12, color: colors.textMuted } }, "אחרי האישור – שלב 2: בחירת הפריטים מהמלאי")),
-      w.measurementConfirmed && !open && h("div", { style: { display: "flex", alignItems: "center", gap: 10, marginTop: 10, flexWrap: "wrap" } },
+      !mixedPreQuote(w) && w.measurementConfirmed && !open && h("div", { style: { display: "flex", alignItems: "center", gap: 10, marginTop: 10, flexWrap: "wrap" } },
         h(Button, { size: "sm", onClick: () => { setOpenId(w.id); setSearch(""); } }, Icons.inventory, " בחר פריטים מהמלאי"),
         lines.length > 0 && h("span", { style: { fontSize: 12, color: colors.textMuted } }, "טיוטה: " + lines.map(l => `${l.name} × ${fmtQty(l.qty)}`).join(", "))),
-      open && picker(w));
+      !mixedPreQuote(w) && open && picker(w));
   };
   const doneCard = w => {
     const dec = w.modularDecode;
@@ -16133,7 +16137,7 @@ function App() {
       cursor: "pointer",
       color: shell ? "rgba(255,255,255,.8)" : colors.textLight,
       padding: 4,
-      display: "flex"
+      display: shell ? "none" : "flex"
     },
     title: "תפריט",
     "data-tour": "menu",
