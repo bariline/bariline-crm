@@ -150,7 +150,7 @@ const FIREBASE_CONFIG = {
   appId: "1:1042161550667:web:61a07d439a34c4705b94ce"
 };
 
-const APP_VERSION = "2026-11-12-cleanup";
+const APP_VERSION = "2026-11-12-health";
 // ─── Password hashing — passwords are never stored in plain text ────
 async function hashPassword(accountId, pw) {
   const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode("bariline-v1|" + String(accountId) + "|" + String(pw || "")));
@@ -3291,6 +3291,49 @@ const LoginScreen = ({
 // ADMIN DASHBOARD
 // ═══════════════════════════════════════════════════════════════════════════════
 
+// ─── System health: is the office sync alive, did every delivery note reach an installer, old phones ────
+const HEALTH = { sync: null, clients: [], started: false, subs: new Set() };
+function startHealthLive() {
+  if (HEALTH.started) return;
+  const db = getDb(); if (!db) return;
+  HEALTH.started = true;
+  const ping = () => HEALTH.subs.forEach(f => f());
+  try {
+    db.collection("_meta").doc("syncStatus").onSnapshot(d => { HEALTH.sync = d.exists ? d.data() : null; ping(); }, () => {});
+    db.collection("_clients").get().then(s => { HEALTH.clients = s.docs.map(d => d.data()); ping(); }).catch(() => {});
+  } catch (e) {}
+}
+const lastSyncFromLogs = workOrders => { let best = ""; (workOrders || []).forEach(w => (w.activityLog || []).forEach(l => { if (l && l.by === "סנכרון מדף" && l.date) { const t = l.date + "T" + (l.time || "00:00"); if (t > best) best = t; } })); return best; };
+function healthOf(workOrders) {
+  const now = new Date();
+  const lastSync = HEALTH.sync && HEALTH.sync.at ? String(HEALTH.sync.at).slice(0, 16) : lastSyncFromLogs(workOrders);
+  const ageH = lastSync ? (now - new Date(lastSync)) / 36e5 : null;
+  const workday = now.getDay() <= 4;
+  const syncBad = lastSync ? ageH > 24 && workday : true;
+  const open = w => !["completed", "cancelled", "rejected"].includes(w.status);
+  const noInstaller = (workOrders || []).filter(w => open(w) && w.madafDelivery && w.madafDelivery.no && !w.installerId);
+  const stuckPending = (workOrders || []).filter(w => open(w) && w.source === "madaf" && w.status === "pending" && String(w.createdDate || "") < addDaysISO(todayISO(), -3));
+  const oldPhones = HEALTH.clients.filter(c => c.version && c.version !== APP_VERSION && c.role !== "admin");
+  const stuckReady = PK.pickups.filter(p => p.status === "ready" && String(p.readyAt || "").slice(0, 10) < addDaysISO(todayISO(), -2));
+  return { lastSync, ageH, syncBad, noInstaller, stuckPending, oldPhones, stuckReady };
+}
+const HealthCard = ({ workOrders, setPage }) => {
+  const h = React.createElement;
+  const [, bump] = useState(0);
+  useEffect(() => { startHealthLive(); const f = () => bump(x => x + 1); HEALTH.subs.add(f); PK.subs.add(f); return () => { HEALTH.subs.delete(f); PK.subs.delete(f); }; }, []);
+  const H = healthOf(workOrders);
+  const ago = H.ageH == null ? "לא ידוע" : H.ageH < 1 ? "לפני " + Math.max(1, Math.round(H.ageH * 60)) + " דקות" : H.ageH < 48 ? "לפני " + Math.round(H.ageH) + " שעות" : "לפני " + Math.round(H.ageH / 24) + " ימים";
+  const row = (ok, text, onClick, detail) => h("div", { onClick, style: { display: "flex", gap: 10, alignItems: "flex-start", padding: "8px 0", borderTop: `1px solid ${colors.border}`, cursor: onClick ? "pointer" : "default", fontSize: 13.5 } },
+    h("span", { style: { fontSize: 16, lineHeight: "18px" } }, ok ? "✅" : "🔴"), h("div", { style: { flex: 1 } }, h("div", { style: { fontWeight: ok ? 500 : 800, color: ok ? colors.text : colors.danger } }, text), detail && h("div", { style: { fontSize: 12, color: colors.textLight } }, detail)));
+  const allOk = !H.syncBad && !H.noInstaller.length && !H.stuckPending.length && !H.stuckReady.length;
+  return h(Card, { style: { borderRight: `4px solid ${allOk ? colors.success : colors.danger}` } },
+    h("h3", { style: { margin: "0 0 6px", fontSize: 15, fontWeight: 700 } }, "🩺 בריאות המערכת", allOk ? h("span", { style: { color: colors.success, fontSize: 13, marginRight: 8 } }, "הכל תקין") : null),
+    row(!H.syncBad, "סנכרון ממדף: " + (H.lastSync ? ago : "לא רץ מעולם / לא ידוע"), null, H.syncBad ? "תעודות משלוח והזמנות חדשות לא מגיעות למערכת. לבדוק שהמחשב במשרד דולק ושתוכנת הסנכרון רצה." : H.lastSync ? "רץ אוטומטית כל דקה כשהמחשב במשרד דולק" : null),
+    row(!H.noInstaller.length, H.noInstaller.length ? H.noInstaller.length + " תעודות משלוח בלי מתקין" : "כל תעודות המשלוח שויכו למתקין", H.noInstaller.length ? () => setPage("orders") : null, H.noInstaller.length ? H.noInstaller.slice(0, 5).map(w => w.customerName + " (תעודה " + w.madafDelivery.no + ")").join(" · ") : null),
+    row(!H.stuckPending.length, H.stuckPending.length ? H.stuckPending.length + " עבודות ממדף ממתינות יותר מ-3 ימים בלי שיבוץ" : "אין עבודות ממדף שתקועות בלי שיבוץ", H.stuckPending.length ? () => setPage("orders") : null, H.stuckPending.slice(0, 5).map(w => w.customerName).join(" · ") || null),
+    row(!H.stuckReady.length, H.stuckReady.length ? H.stuckReady.length + " איסופים \"מוכן\" שלא נסרקו יותר מיומיים" : "אין איסופים תקועים", H.stuckReady.length ? () => setPage("pickups") : null, H.stuckReady.map(p => p.installerName + " · " + dayLabel(p.day)).join(" · ") || null),
+    row(!H.oldPhones.length, H.oldPhones.length ? H.oldPhones.length + " טלפונים בגרסה ישנה" : "כל הטלפונים בגרסה הנוכחית", null, H.oldPhones.length ? H.oldPhones.map(c => c.name + " (" + c.version + ")").join(" · ") + " – לסגור ולפתוח את האפליקציה פעמיים" : null));
+};
 const DashboardPage = ({
   workOrders,
   installers,
@@ -3343,7 +3386,7 @@ const DashboardPage = ({
       fontSize: 14,
       color: colors.textLight
     }
-  }, "\u05D9\u05D5\u05DD \u05E9\u05DC\u05D9\u05E9\u05D9, 14 \u05D1\u05D0\u05E4\u05E8\u05D9\u05DC 2026 \u2014 ", todayJobs.length, " \u05E2\u05D1\u05D5\u05D3\u05D5\u05EA \u05D4\u05D9\u05D5\u05DD")), /*#__PURE__*/React.createElement("div", {
+  }, new Date().toLocaleDateString("he-IL", { weekday: "long", day: "numeric", month: "long", year: "numeric" }), todayJobs.length, " \u05E2\u05D1\u05D5\u05D3\u05D5\u05EA \u05D4\u05D9\u05D5\u05DD")), /*#__PURE__*/React.createElement("div", {
     style: {
       display: "grid",
       gridTemplateColumns: isMobile ? "1fr" : "repeat(auto-fit, minmax(140px, 1fr))",
@@ -3374,7 +3417,7 @@ const DashboardPage = ({
     value: `₪${(revenue / 1000).toFixed(1)}K`,
     sub: "תעודות משלוח · לפני מע״מ",
     color: colors.success
-  })), (() => {
+  })), /*#__PURE__*/React.createElement("div", { style: { marginBottom: 20 } }, /*#__PURE__*/React.createElement(HealthCard, { workOrders, setPage })), (() => {
     const openSC = (serviceCalls || []).filter(sc => sc.status !== "completed");
     const urgentSC = openSC.filter(sc => sc.priority === "urgent");
     if (openSC.length === 0) return null;
@@ -14933,6 +14976,9 @@ function App() {
   const dbReadyRef = useRef(false);
   const [dbStatus, setDbStatus] = useState("loading"); // loading | online | offline
   const [usageAlert, setUsageAlert] = useState(null);
+  const [syncBannerOff, setSyncBannerOff] = useState(false);
+  const [, healthBump] = useState(0);
+  useEffect(() => { if (!currentUser || currentUser.role !== "admin") return; startHealthLive(); const f = () => healthBump(x => x + 1); HEALTH.subs.add(f); return () => HEALTH.subs.delete(f); }, [currentUser]);
   const usageIntervalRef = useRef(null);
 
   // ─── Save status indicator + toast ────
@@ -16273,7 +16319,11 @@ function App() {
       background: dbStatus === "online" ? "#10b981" : dbStatus === "offline" ? "#f59e0b" : "#94a3b8",
       flexShrink: 0
     }
-  }), usageAlert && isAdmin && /*#__PURE__*/React.createElement("div", {
+  }), isAdmin && !syncBannerOff && page !== "dashboard" && (() => { const H = healthOf(workOrders); if (!H.syncBad && !H.noInstaller.length) return null; return /*#__PURE__*/React.createElement("div", {
+    style: { position: "fixed", top: 12, left: "50%", transform: "translateX(-50%)", zIndex: 9998, background: "#fee2e2", border: "1.5px solid #b42318", color: "#7f1d1d", borderRadius: 12, padding: "8px 14px", display: "flex", alignItems: "center", gap: 10, fontSize: 13, fontWeight: 700, boxShadow: "0 4px 20px rgba(0,0,0,.15)", maxWidth: "calc(100vw - 32px)" }
+  }, "🔴 ", H.syncBad ? "הסנכרון ממדף לא רץ " + (H.lastSync ? "מאז " + H.lastSync.replace("T", " ") : "(לא ידוע)") + ". " : "", H.noInstaller.length ? H.noInstaller.length + " תעודות משלוח בלי מתקין. " : "",
+    /*#__PURE__*/React.createElement("button", { onClick: () => setPage("dashboard"), style: { border: 0, background: "#b42318", color: "#fff", borderRadius: 8, padding: "4px 10px", cursor: "pointer", fontFamily: "inherit", fontWeight: 700 } }, "פרטים"),
+    /*#__PURE__*/React.createElement("button", { onClick: () => setSyncBannerOff(true), style: { border: 0, background: "none", cursor: "pointer", color: "#7f1d1d", fontSize: 16 } }, "✕")); })(), usageAlert && isAdmin && /*#__PURE__*/React.createElement("div", {
     style: {
       position: "fixed",
       top: 12,
