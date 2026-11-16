@@ -150,7 +150,7 @@ const FIREBASE_CONFIG = {
   appId: "1:1042161550667:web:61a07d439a34c4705b94ce"
 };
 
-const APP_VERSION = "2026-11-12-health";
+const APP_VERSION = "2026-11-15-returns";
 // ─── Password hashing — passwords are never stored in plain text ────
 async function hashPassword(accountId, pw) {
   const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode("bariline-v1|" + String(accountId) + "|" + String(pw || "")));
@@ -420,6 +420,7 @@ function withIntegrationDefaults(order) {
   Object.entries(WORK_ORDER_INTEGRATION_DEFAULTS).forEach(([k, v]) => {
     if (out[k] === undefined) out[k] = Array.isArray(v) ? [] : v;
   });
+  if (deliveryReturned(out) && out.productType === "standard" && out.madafQuote && out.status !== "completed") out.productType = "custom";
   return modularFromDelivery(out);
 }
 // A delivery note (תעודת משלוח) for a modular model WITHOUT a measurement: Madaf makes it an ordinary install job.
@@ -476,7 +477,12 @@ function isMixedJob(w) {
 const measuredOutside = w => !!(w && w.measured && !currentMeasurement(w) && !w.modularNoMeasure);
 const drawingItemIsModular = it => textIsModular(it && it.snapshot && it.snapshot.model || "");
 // Modular flow: measured → (office makes the quote in Madaf) → delivery note → פענוח (אשר מדידה + פענוח there)
-const hasMadafDelivery = w => !!(w && (w.madafDeliveryNo || w.madafDelivery && w.madafDelivery.no));
+// A return document in Madaf (תעודת החזרה) comes as a delivery note whose lines are negative: the delivery is cancelled.
+// Nothing is sold, nothing costs: it leaves the reports, and units that were taken from stock go back.
+const deliveryReturned = w => { const d = w && w.madafDelivery; if (!d || !d.no) return false; const ls = d.lines || []; return Number(d.preVat) < 0 || Number(d.total) < 0 || ls.length > 0 && ls.every(l => Number(l.qty) < 0); };
+// the delivery note the return cancelled (the job was opened from it: MDF-M<no>)
+const returnedOrigNo = w => { const m = /^MDF-M(\d+)$/.exec(String(w && w.id || "")); return w.madafReturn && w.madafReturn.of || (m && Number(m[1]) !== Number(w.madafDelivery && w.madafDelivery.no) ? m[1] : null); };
+const hasMadafDelivery = w => !!(w && (w.madafDeliveryNo || w.madafDelivery && w.madafDelivery.no)) && !deliveryReturned(w);
 // a mixed home is decoded right after the measurement (so the office can quote it); stock leaves only after the delivery note
 const mixedPreQuote = w => !!w && w.productType === "custom" && isModularJob(w) && !w.modularPlanned && !hasMadafDelivery(w) && !w.measurementConfirmed && !w.modularReady && !w.madafQuote && !w.modularDecode;
 const isWaitingModular = w => w.productType === "custom" && w.status !== "completed" && w.measured && !w.glassReady && !w.modularDecode && isModularJob(w) && (w.measurementConfirmed || hasMadafDelivery(w) || w.modularReady || mixedPreQuote(w));
@@ -3293,6 +3299,11 @@ const LoginScreen = ({
 
 // ─── System health: is the office sync alive, did every delivery note reach an installer, old phones ────
 const HEALTH = { sync: null, clients: [], started: false, subs: new Set() };
+const addLogPlain = (w, text) => ({ ...w, activityLog: [...(w.activityLog || []), { action: text, date: todayISO(), time: new Date().toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" }), by: "מערכת" }] });
+// "מתקין לפי מדף: הרצל" in the notes = Madaf named an installer the CRM does not have yet
+const madafTagOf = w => { const m = /מתקין לפי מדף: ([^|]+)/.exec(String(w && w.notes || "")); return m ? m[1].trim() : ""; };
+const tagMatchesInstaller = (tag, inst) => { const first = String(inst && inst.name || "").trim().split(/\s+/)[0]; const t = String(tag || "").trim(); return !!first && !!t && (t === first || t.startsWith(first) || first.startsWith(t) && t.length >= 3); };
+const unknownInstallerJobs = (workOrders, installers) => (workOrders || []).filter(w => !w.installerId && !["completed", "cancelled", "rejected"].includes(w.status) && madafTagOf(w) && !(installers || []).some(i => tagMatchesInstaller(madafTagOf(w), i)));
 function startHealthLive() {
   if (HEALTH.started) return;
   const db = getDb(); if (!db) return;
@@ -3317,7 +3328,7 @@ function healthOf(workOrders) {
   const stuckReady = PK.pickups.filter(p => p.status === "ready" && String(p.readyAt || "").slice(0, 10) < addDaysISO(todayISO(), -2));
   return { lastSync, ageH, syncBad, noInstaller, stuckPending, oldPhones, stuckReady };
 }
-const HealthCard = ({ workOrders, setPage }) => {
+const HealthCard = ({ workOrders, installers, setPage }) => {
   const h = React.createElement;
   const [, bump] = useState(0);
   useEffect(() => { startHealthLive(); const f = () => bump(x => x + 1); HEALTH.subs.add(f); PK.subs.add(f); return () => { HEALTH.subs.delete(f); PK.subs.delete(f); }; }, []);
@@ -3332,6 +3343,7 @@ const HealthCard = ({ workOrders, setPage }) => {
     row(!H.noInstaller.length, H.noInstaller.length ? H.noInstaller.length + " תעודות משלוח בלי מתקין" : "כל תעודות המשלוח שויכו למתקין", H.noInstaller.length ? () => setPage("orders") : null, H.noInstaller.length ? H.noInstaller.slice(0, 5).map(w => w.customerName + " (תעודה " + w.madafDelivery.no + ")").join(" · ") : null),
     row(!H.stuckPending.length, H.stuckPending.length ? H.stuckPending.length + " עבודות ממדף ממתינות יותר מ-3 ימים בלי שיבוץ" : "אין עבודות ממדף שתקועות בלי שיבוץ", H.stuckPending.length ? () => setPage("orders") : null, H.stuckPending.slice(0, 5).map(w => w.customerName).join(" · ") || null),
     row(!H.stuckReady.length, H.stuckReady.length ? H.stuckReady.length + " איסופים \"מוכן\" שלא נסרקו יותר מיומיים" : "אין איסופים תקועים", H.stuckReady.length ? () => setPage("pickups") : null, H.stuckReady.map(p => p.installerName + " · " + dayLabel(p.day)).join(" · ") || null),
+    (() => { const u = unknownInstallerJobs(workOrders, installers); const names = [...new Set(u.map(madafTagOf))]; return row(!u.length, u.length ? u.length + " עבודות ממדף עם שם מתקין שלא קיים במערכת: " + names.join(", ") : "כל המתקינים שמדף מציין קיימים במערכת", u.length ? () => setPage("accounts") : null, u.length ? "להוסיף את המתקין בניהול חשבונות – העבודות ישובצו אליו אוטומטית" : null); })(),
     row(!H.oldPhones.length, H.oldPhones.length ? H.oldPhones.length + " טלפונים בגרסה ישנה" : "כל הטלפונים בגרסה הנוכחית", null, H.oldPhones.length ? H.oldPhones.map(c => c.name + " (" + c.version + ")").join(" · ") + " – לסגור ולפתוח את האפליקציה פעמיים" : null));
 };
 const DashboardPage = ({
@@ -3417,7 +3429,7 @@ const DashboardPage = ({
     value: `₪${(revenue / 1000).toFixed(1)}K`,
     sub: "תעודות משלוח · לפני מע״מ",
     color: colors.success
-  })), /*#__PURE__*/React.createElement("div", { style: { marginBottom: 20 } }, /*#__PURE__*/React.createElement(HealthCard, { workOrders, setPage })), (() => {
+  })), /*#__PURE__*/React.createElement("div", { style: { marginBottom: 20 } }, /*#__PURE__*/React.createElement(HealthCard, { workOrders, installers, setPage })), (() => {
     const openSC = (serviceCalls || []).filter(sc => sc.status !== "completed");
     const urgentSC = openSC.filter(sc => sc.priority === "urgent");
     if (openSC.length === 0) return null;
@@ -5689,7 +5701,7 @@ const WorkOrdersPage = ({
     if (statusFilter === "all") {
       mst = w.status !== "completed" && !isPreProd && !isWaitGlass && !(role === "admin" && isWaitingModular(w));
     } else if (statusFilter === "waiting_glass" || statusFilter === "waiting_glass_nav") {
-      mst = isWaitGlass && (role !== "admin" || (glassKind === "modular") === isModularJob(w));
+      mst = isWaitGlass && (role !== "admin" || (glassKind === "rework" ? reworkOpen(w) : !reworkOpen(w) && (glassKind === "modular") === isModularJob(w)));
     } else if (statusFilter === "pre_production") {
       mst = isPreProd;
     } else {
@@ -6652,14 +6664,15 @@ const WorkOrdersPage = ({
     onSelect: setStatusFilter
   }), role === "admin" && viewMode === "list" && (statusFilter === "waiting_glass" || statusFilter === "waiting_glass_nav") && (() => {
     const all = visibleOrders.filter(w => isWaitGlassJob(w, role));
-    const nMod = all.filter(isModularJob).length;
+    const nMod = all.filter(w => isModularJob(w) && !reworkOpen(w)).length, nRw = all.filter(reworkOpen).length;
     const btn = (key, label, n) => React.createElement("button", {
       key,
       onClick: () => setGlassKind(key),
       style: { padding: "8px 18px", borderRadius: 20, border: `2px solid ${glassKind === key ? colors.purple : colors.border}`, background: glassKind === key ? colors.purple : "#fff", color: glassKind === key ? "#fff" : colors.text, fontWeight: 700, fontSize: 14, cursor: "pointer", fontFamily: "inherit" }
     }, label, " (", n, ")");
     return React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" } },
-      btn("clean", "צירים נקיים", all.length - nMod), btn("modular", "מודולרי", nMod),
+      btn("clean", "צירים נקיים", all.length - nMod - nRw), btn("modular", "מודולרי", nMod), btn("rework", "🔧 ייצור חוזר", nRw),
+      glassKind === "rework" && React.createElement("span", { style: { fontSize: 12, color: colors.textMuted } }, "זכוכית שנשברה / מידה לא טובה – מייצרים מחדש מהמדידה הקיימת (\"פתח בשרטוט\"). כשמוכן: \"זכוכית מוכנה\"."),
       glassKind === "modular" && React.createElement("span", { style: { fontSize: 12, color: colors.textMuted } }, "אחרי הפענוח · כשמוכן: פותחים את העבודה ← \"מוכן — העבר למתקין\""));
   })(), viewMode === "calendar" && (() => {
     const today = new Date();
@@ -7038,7 +7051,7 @@ const WorkOrdersPage = ({
       }
     }, isStandard ? "סטנדרט" : isMixedJob(wo) ? "מודולרי + צירים נקיים" : isModularJob(wo) ? "מודולרי" : "צירים נקיים"), /*#__PURE__*/React.createElement(StatusBadge, {
       status: wo.status
-    }), reworkOpen(wo) && /*#__PURE__*/React.createElement("span", { style: { padding: "1px 7px", borderRadius: 10, fontSize: 10, fontWeight: 700, background: "#fde7e4", color: "#b42318" } }, "🔧 זכוכית בתיקון"), measuredOutside(wo) && wo.status !== "completed" && /*#__PURE__*/React.createElement("span", {
+    }), deliveryReturned(wo) && /*#__PURE__*/React.createElement("span", { style: { padding: "1px 7px", borderRadius: 10, fontSize: 10, fontWeight: 700, background: "#f1f5f9", color: "#475569", border: "1px dashed #94a3b8" }, title: "תעודת החזרה במדף – תעודת המשלוח בוטלה" }, "↩ תעודה בוטלה"), reworkOpen(wo) && /*#__PURE__*/React.createElement("span", { style: { padding: "1px 7px", borderRadius: 10, fontSize: 10, fontWeight: 700, background: "#fde7e4", color: "#b42318" } }, "🔧 זכוכית בתיקון"), measuredOutside(wo) && wo.status !== "completed" && /*#__PURE__*/React.createElement("span", {
       title: "במדף יש הזמנת לקוח / הצעת מחיר, אבל המדידה לא נשמרה במערכת",
       style: { padding: "1px 7px", borderRadius: 10, fontSize: 10, fontWeight: 700, background: "#f1f5f9", color: "#475569", border: "1px dashed #94a3b8" }
     }, "📝 נמדד מחוץ למערכת")), role === "installer" && React.createElement("div", { style: { margin: "4px 0" } }, React.createElement(NearTag, { w: wo, workOrders, installerId })), /*#__PURE__*/React.createElement("div", {
@@ -7498,7 +7511,7 @@ const WorkOrdersPage = ({
       v: selected.completedDate || "—"
     }, {
       l: "מחיר לפי תעודת משלוח (לפני מע״מ)",
-      v: selected.madafDelivery && selected.madafDelivery.no ? `₪${(Number(selected.madafDelivery.preVat) || 0).toLocaleString()} · תעודה ${selected.madafDelivery.no}` : "— (אין תעודת משלוח עדיין)"
+      v: deliveryReturned(selected) ? `— תעודה ${returnedOrigNo(selected) || ""} בוטלה (החזרה ${selected.madafDelivery.no})` : selected.madafDelivery && selected.madafDelivery.no ? `₪${(Number(selected.madafDelivery.preVat) || 0).toLocaleString()} · תעודה ${selected.madafDelivery.no}` : "— (אין תעודת משלוח עדיין)"
     }].filter(f => role !== "installer" || !(f.l.startsWith("מחיר") || f.l === "מתקין" || f.l === "הושלם" && !selected.completedDate)).map((f, i) => /*#__PURE__*/React.createElement("div", {
       key: i,
       style: {
@@ -12488,6 +12501,24 @@ async function runDeliveryStock(jobs, partMap, costs, stockItems) {
 }
 // Runs in the background for admins, so delivery notes leave stock even if nobody opens the report
 let deliveryStockLastRun = 0;
+// units taken from stock for a delivery note that was later cancelled (return document) go back to stock, once
+async function reverseReturnedDeliveries(workOrders) {
+  const db = getDb();
+  for (const w of workOrders.filter(deliveryReturned)) {
+    const orig = returnedOrigNo(w);
+    if (!orig) continue;
+    const ref = db.collection("deliveryCosts").doc(String(orig));
+    const d = await ref.get();
+    if (!d.exists) continue;
+    const lines = d.data().lines || {};
+    for (const [idx, l] of Object.entries(lines)) {
+      if (!(l && l.mode === "stock" && l.taken && !l.returned)) continue;
+      const claimed = await db.runTransaction(async t => { const cur = await t.get(ref); const x = cur.exists && cur.data().lines && cur.data().lines[idx]; if (!x || x.returned) return false; t.set(ref, { lines: { [idx]: { ...x, returned: true, returnedAt: new Date().toISOString(), returnDeliveryNo: w.madafDelivery.no } } }, { merge: true }); return true; });
+      if (!claimed) continue;
+      await stockAdjust([{ kind: "model", name: l.name, finish: l.finish || "", qty: Number(l.qty) || 1 }], { reason: "החזרה " + w.madafDelivery.no + " – תעודת משלוח " + orig + " בוטלה", orderId: w.id });
+    }
+  }
+}
 async function autoDeliveryStock(workOrders) {
   const db = getDb();
   if (!db || Date.now() - deliveryStockLastRun < 3 * 60 * 1000) return;
@@ -12498,7 +12529,8 @@ async function autoDeliveryStock(workOrders) {
   const catDoc = await db.collection("_meta").doc("madafItems").get();
   const catalog = catDoc.exists && catDoc.data().items || {};
   const supplies = (await db.collection("storeSupplies").get()).docs.map(d => d.data()).filter(s => s.madafDelivery).map(supplyAsJob);
-  const jobs = workOrders.filter(w => w.madafDelivery && w.madafDelivery.no).concat(supplies)
+  try { await reverseReturnedDeliveries(workOrders); } catch (e) { console.warn("returns", e); }
+  const jobs = workOrders.filter(w => w.madafDelivery && w.madafDelivery.no && !deliveryReturned(w)).concat(supplies)
     .map(j => ({ ...j, madafDelivery: { ...j.madafDelivery, lines: withCatalog(j.madafDelivery.lines, catalog) } }));
   const pending = jobs.filter(j => (j.madafDelivery.lines || []).some((l, idx) => {
     const m = lineMapping(l, partMap);
@@ -12559,7 +12591,7 @@ const ProfitReport = ({ workOrders, installers }) => {
   useEffect(() => {
     if (stockItems.length && Object.keys(partMap).length) runDeliveryStock(jobs, partMap, costs, stockItems);
   }, [jobs, partMap, costs, stockItems]);
-  const rows = jobs.filter(w => madafDate(w.madafDelivery.date).slice(0, 7) === month && storeMatches(w, storeFilter)).map(w => {
+  const rows = jobs.filter(w => !deliveryReturned(w) && madafDate(w.madafDelivery.date).slice(0, 7) === month && storeMatches(w, storeFilter)).map(w => {
     const d = w.madafDelivery;
     const c = costs[String(d.no)] || {};
     const lines = (d.lines || []).map((l, idx) => {
@@ -15194,6 +15226,9 @@ function App() {
   const setInstallers = useCallback(updater => {
     const prev = installersRef.current;
     const next = typeof updater === "function" ? updater(prev) : updater;
+    // a new installer: jobs that Madaf already named for them get assigned
+    const added = (prev || []).length ? (next || []).filter(i => !prev.some(p => p.id === i.id)) : [];
+    if (added.length) setTimeout(() => setWorkOrders(ws => ws.map(w => { if (w.installerId || ["completed", "cancelled", "rejected"].includes(w.status)) return w; const inst = added.find(i => tagMatchesInstaller(madafTagOf(w), i)); return inst ? addLogPlain({ ...w, installerId: inst.id, installerName: inst.name.trim(), status: w.status === "pending" ? "scheduled" : w.status }, "שובץ אוטומטית ל" + inst.name.trim() + " (לפי מדף)") : w; })), 0);
     installersRef.current = next;
     setInstallersState(next);
     syncToFirestore(COLLECTIONS.installers, prev, next);
