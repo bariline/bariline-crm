@@ -150,7 +150,7 @@ const FIREBASE_CONFIG = {
   appId: "1:1042161550667:web:61a07d439a34c4705b94ce"
 };
 
-const APP_VERSION = "2026-11-16-delivery-sizes";
+const APP_VERSION = "2026-11-16-modular-since";
 // ─── Password hashing — passwords are never stored in plain text ────
 async function hashPassword(accountId, pw) {
   const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode("bariline-v1|" + String(accountId) + "|" + String(pw || "")));
@@ -426,16 +426,18 @@ function withIntegrationDefaults(order) {
 // A delivery note (תעודת משלוח) for a modular model WITHOUT a measurement: Madaf makes it an ordinary install job.
 // From MODULAR_FROM_DELIVERY_SINCE on, the CRM treats it exactly like a modular job whose measurement was confirmed:
 // פענוח מודולרי (sizes from the delivery note) → ממתין לזכוכית (מודולרי) → admin "מוכן — העבר למתקין".
-const MODULAR_FROM_DELIVERY_SINCE = "2026-11-10";
+const MODULAR_FROM_DELIVERY_SINCE = "2026-11-01";   // modular (פרופיל) models
+const CUSTOM_FROM_DELIVERY_SINCE = "2026-11-10";    // לפי מידה (צירים נקיים) without a customer order
 function modularFromDelivery(w) {
   if (!w || w.modular === false || w.isSupply || w.measured || currentMeasurement(w)) return w;
   if (!(w.madafDeliveryNo || w.madafDelivery && w.madafDelivery.no) || deliveryReturned(w)) return w;
   if (w.madafOrderNo || w.madafQuote) return w;                 // the normal way: order → measurement → quote → delivery
-  if (String(w.createdDate || "") < MODULAR_FROM_DELIVERY_SINCE) return w;
   if (["completed", "cancelled", "rejected"].includes(w.status)) return w;
   // a delivery note WITHOUT a customer order before it = the store sent the sizes: no measurement by the installer
   const text = [w.product].concat((w.madafDelivery && w.madafDelivery.lines || []).map(l => l.desc)).join(" | ");
   const modular = w.modular === true || textIsModular(text);
+  const since = String(w.createdDate || "");
+  if (modular && since < MODULAR_FROM_DELIVERY_SINCE || !modular && since < CUSTOM_FROM_DELIVERY_SINCE) return w;
   if (modular) return { ...w, productType: "custom", measured: true, measurementConfirmed: true, measurementConfirmedDate: w.measurementConfirmedDate || w.createdDate || null, modularReady: true, modularNoMeasure: true, sizesFromDelivery: true };
   if (w.productType === "custom") return { ...w, measured: true, sizesFromDelivery: true };   // לפי מידה with known sizes: the office draws and confirms
   return w;
