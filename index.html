@@ -150,7 +150,7 @@ const FIREBASE_CONFIG = {
   appId: "1:1042161550667:web:61a07d439a34c4705b94ce"
 };
 
-const APP_VERSION = "2026-11-15-returns";
+const APP_VERSION = "2026-11-16-delivery-sizes";
 // ─── Password hashing — passwords are never stored in plain text ────
 async function hashPassword(accountId, pw) {
   const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode("bariline-v1|" + String(accountId) + "|" + String(pw || "")));
@@ -428,12 +428,17 @@ function withIntegrationDefaults(order) {
 // פענוח מודולרי (sizes from the delivery note) → ממתין לזכוכית (מודולרי) → admin "מוכן — העבר למתקין".
 const MODULAR_FROM_DELIVERY_SINCE = "2026-11-10";
 function modularFromDelivery(w) {
-  if (!w || w.productType === "custom" || w.modular === false || w.isSupply || w.measured) return w;
-  if (!(w.madafDeliveryNo || w.madafDelivery && w.madafDelivery.no)) return w;
+  if (!w || w.modular === false || w.isSupply || w.measured || currentMeasurement(w)) return w;
+  if (!(w.madafDeliveryNo || w.madafDelivery && w.madafDelivery.no) || deliveryReturned(w)) return w;
+  if (w.madafOrderNo || w.madafQuote) return w;                 // the normal way: order → measurement → quote → delivery
   if (String(w.createdDate || "") < MODULAR_FROM_DELIVERY_SINCE) return w;
+  if (["completed", "cancelled", "rejected"].includes(w.status)) return w;
+  // a delivery note WITHOUT a customer order before it = the store sent the sizes: no measurement by the installer
   const text = [w.product].concat((w.madafDelivery && w.madafDelivery.lines || []).map(l => l.desc)).join(" | ");
-  if (w.modular !== true && !textIsModular(text)) return w;
-  return { ...w, productType: "custom", measured: true, measurementConfirmed: true, measurementConfirmedDate: w.measurementConfirmedDate || w.createdDate || null, modularReady: true, modularNoMeasure: true };
+  const modular = w.modular === true || textIsModular(text);
+  if (modular) return { ...w, productType: "custom", measured: true, measurementConfirmed: true, measurementConfirmedDate: w.measurementConfirmedDate || w.createdDate || null, modularReady: true, modularNoMeasure: true, sizesFromDelivery: true };
+  if (w.productType === "custom") return { ...w, measured: true, sizesFromDelivery: true };   // לפי מידה with known sizes: the office draws and confirms
+  return w;
 }
 // When a job was added: exact time if known (new CRM jobs: createdAt; Madaf jobs: the first log line), else the day
 function jobAddedKey(w) {
@@ -474,7 +479,7 @@ function isMixedJob(w) {
   return !!(cm && Array.isArray(cm.systems) && cm.systems.includes("profile") && cm.systems.includes("clean"));
 }
 // "measured" came from Madaf (a customer order / quote exists) but no measurement was saved in the CRM
-const measuredOutside = w => !!(w && w.measured && !currentMeasurement(w) && !w.modularNoMeasure);
+const measuredOutside = w => !!(w && w.measured && !currentMeasurement(w) && !w.modularNoMeasure && !w.sizesFromDelivery);
 const drawingItemIsModular = it => textIsModular(it && it.snapshot && it.snapshot.model || "");
 // Modular flow: measured → (office makes the quote in Madaf) → delivery note → פענוח (אשר מדידה + פענוח there)
 // A return document in Madaf (תעודת החזרה) comes as a delivery note whose lines are negative: the delivery is cancelled.
@@ -5812,7 +5817,7 @@ const WorkOrdersPage = ({
     };
     if (!wo.measurementConfirmed) return {
       step: 2,
-      label: "מדידה בוצעה — ממתין לאישור מנהל",
+      label: wo.sizesFromDelivery ? "המידות הגיעו בתעודת המשלוח — לשרטט לפי התעודה ולאשר (בלי מדידה)" : "מדידה בוצעה — ממתין לאישור מנהל",
       color: "#f59e0b",
       icon: Icons.ruler
     };
@@ -7051,7 +7056,7 @@ const WorkOrdersPage = ({
       }
     }, isStandard ? "סטנדרט" : isMixedJob(wo) ? "מודולרי + צירים נקיים" : isModularJob(wo) ? "מודולרי" : "צירים נקיים"), /*#__PURE__*/React.createElement(StatusBadge, {
       status: wo.status
-    }), deliveryReturned(wo) && /*#__PURE__*/React.createElement("span", { style: { padding: "1px 7px", borderRadius: 10, fontSize: 10, fontWeight: 700, background: "#f1f5f9", color: "#475569", border: "1px dashed #94a3b8" }, title: "תעודת החזרה במדף – תעודת המשלוח בוטלה" }, "↩ תעודה בוטלה"), reworkOpen(wo) && /*#__PURE__*/React.createElement("span", { style: { padding: "1px 7px", borderRadius: 10, fontSize: 10, fontWeight: 700, background: "#fde7e4", color: "#b42318" } }, "🔧 זכוכית בתיקון"), measuredOutside(wo) && wo.status !== "completed" && /*#__PURE__*/React.createElement("span", {
+    }), wo.sizesFromDelivery && wo.status !== "completed" && /*#__PURE__*/React.createElement("span", { style: { padding: "1px 7px", borderRadius: 10, fontSize: 10, fontWeight: 700, background: "#eff6ff", color: "#1d4ed8", border: "1px dashed #60a5fa" }, title: "תעודת משלוח בלי הזמנת לקוח לפניה – המידות הגיעו מהחנות" }, "📦 מידות מתעודת משלוח"), deliveryReturned(wo) && /*#__PURE__*/React.createElement("span", { style: { padding: "1px 7px", borderRadius: 10, fontSize: 10, fontWeight: 700, background: "#f1f5f9", color: "#475569", border: "1px dashed #94a3b8" }, title: "תעודת החזרה במדף – תעודת המשלוח בוטלה" }, "↩ תעודה בוטלה"), reworkOpen(wo) && /*#__PURE__*/React.createElement("span", { style: { padding: "1px 7px", borderRadius: 10, fontSize: 10, fontWeight: 700, background: "#fde7e4", color: "#b42318" } }, "🔧 זכוכית בתיקון"), measuredOutside(wo) && wo.status !== "completed" && /*#__PURE__*/React.createElement("span", {
       title: "במדף יש הזמנת לקוח / הצעת מחיר, אבל המדידה לא נשמרה במערכת",
       style: { padding: "1px 7px", borderRadius: 10, fontSize: 10, fontWeight: 700, background: "#f1f5f9", color: "#475569", border: "1px dashed #94a3b8" }
     }, "📝 נמדד מחוץ למערכת")), role === "installer" && React.createElement("div", { style: { margin: "4px 0" } }, React.createElement(NearTag, { w: wo, workOrders, installerId })), /*#__PURE__*/React.createElement("div", {
@@ -7710,7 +7715,7 @@ const WorkOrdersPage = ({
     }, isModularJob(selected) ? "בהכנה במפעל" : "\u05E0\u05E9\u05DC\u05D7 \u05DC\u05D9\u05D9\u05E6\u05D5\u05E8 \u2014 \u05DE\u05DE\u05EA\u05D9\u05DF \u05DC\u05D6\u05DB\u05D5\u05DB\u05D9\u05EA"), role === "admin" && selected.productType === "custom" && !selected.glassReady && /*#__PURE__*/React.createElement("button", {
       onClick: () => {
         const val = !isModularJob(selected);
-        const back = !val && selected.modularNoMeasure ? { productType: "standard", measured: false, measurementConfirmed: false, measurementConfirmedDate: null, modularReady: false, modularNoMeasure: false } : {};
+        const back = !val && selected.modularNoMeasure ? { productType: selected.sizesFromDelivery && /לפי מידה|צירים נקיים/.test(String(selected.product || "")) ? "custom" : "standard", measured: !!selected.sizesFromDelivery, measurementConfirmed: false, measurementConfirmedDate: null, modularReady: false, modularNoMeasure: false } : {};
         setWorkOrders(prev => prev.map(w => w.id === selected.id ? { ...w, modular: val, ...back } : w));
         setSelected({ ...selected, modular: val, ...back });
       },
@@ -11128,7 +11133,8 @@ const ModularDecodePage = ({ workOrders, setWorkOrders, installers, currentUser,
     const drawing = w.drawing && Array.isArray(w.drawing.items) ? w.drawing.items : [];
     if (!m && w.modularNoMeasure) return h("div", { style: { marginTop: 10, padding: 10, background: "#fff7ed", border: `1px solid ${colors.warning}`, borderRadius: 10, fontSize: 12 } },
       h("div", { style: { fontWeight: 700, color: colors.warning, marginBottom: 4 } }, "⚠ ללא מדידה – הגיע מתעודת משלוח" + (w.madafDelivery && w.madafDelivery.no ? " " + w.madafDelivery.no : "") + ". לפענח לפי המידות שבתעודה:"),
-      (w.madafDelivery && w.madafDelivery.lines || []).length ? (w.madafDelivery.lines || []).map((l, i) => h("div", { key: i }, "• " + (l.desc || "") + (l.qty && Number(l.qty) !== 1 ? " × " + l.qty : ""))) : h("div", null, w.product || ""));
+      (w.madafDelivery && w.madafDelivery.lines || []).length ? (w.madafDelivery.lines || []).map((l, i) => h("div", { key: i }, "• " + (l.desc || "") + (l.qty && Number(l.qty) !== 1 ? " × " + l.qty : ""))) : h("div", null, w.product || ""),
+      w.notes && h("div", { style: { marginTop: 4, color: colors.text } }, "הערות מהתעודה: ", String(w.notes).replace(/^מדף:[^|]*\|?\s*/, "")));
     if (!m && !drawing.length) return h("div", { style: { fontSize: 12, color: colors.warning, marginTop: 8 } }, "אין סיכום מדידה בעבודה");
     return h("div", { style: { marginTop: 10, padding: 10, background: "#f8fafc", border: `1px solid ${colors.border}`, borderRadius: 10, fontSize: 12 } },
       m && h("div", null, h("div", { style: { fontWeight: 700, marginBottom: 4, color: colors.textLight } }, "מידות הלקוח"), h("div", { style: { whiteSpace: "pre-wrap" } }, m.summary || "")),
