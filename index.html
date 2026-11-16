@@ -150,7 +150,7 @@ const FIREBASE_CONFIG = {
   appId: "1:1042161550667:web:61a07d439a34c4705b94ce"
 };
 
-const APP_VERSION = "2026-11-16-modular-since";
+const APP_VERSION = "2026-11-16-corner-sizes";
 // ─── Password hashing — passwords are never stored in plain text ────
 async function hashPassword(accountId, pw) {
   const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode("bariline-v1|" + String(accountId) + "|" + String(pw || "")));
@@ -435,7 +435,7 @@ function modularFromDelivery(w) {
   if (["completed", "cancelled", "rejected"].includes(w.status)) return w;
   // a delivery note WITHOUT a customer order before it = the store sent the sizes: no measurement by the installer
   const text = [w.product].concat((w.madafDelivery && w.madafDelivery.lines || []).map(l => l.desc)).join(" | ");
-  const modular = w.modular === true || textIsModular(text);
+  const modular = w.modular === true || textIsModularOrCorner(text);
   const since = String(w.createdDate || "");
   if (modular && since < MODULAR_FROM_DELIVERY_SINCE || !modular && since < CUSTOM_FROM_DELIVERY_SINCE) return w;
   if (modular) return { ...w, productType: "custom", measured: true, measurementConfirmed: true, measurementConfirmedDate: w.measurementConfirmedDate || w.createdDate || null, modularReady: true, modularNoMeasure: true, sizesFromDelivery: true };
@@ -465,6 +465,11 @@ const normModular = t => String(t || "").replace(/\s+/g, " ").trim().toLowerCase
 // the 16 modular (פרופיל) model names always count, plus any extra names saved in _meta/modularModels
 const modularNamesAll = () => MODULAR_NAMES.concat(Object.keys(MODULAR_LAYOUTS));
 const textIsModular = t => modularNamesAll().some(n => normModular(n) && normModular(t).replace(/['’׳]/g, "'").includes(normModular(n).replace(/['’׳]/g, "'")));
+// Corner stock models come in 78/78 and 88/88. A mixed pair (78/88, 88/78, 90/95…) is built by the warehouse keeper from
+// the two standard sizes, so the job is treated as modular (פענוח) – same model with equal sides stays a standard job.
+const CORNER_STOCK_MODELS = ["מלודי", "ניו יורק", "דאלס", "לוגנו", "מיאמי"];
+const cornerMixedSizes = t => String(t || "").split("|").some(line => CORNER_STOCK_MODELS.some(m => normModular(line).includes(m)) && (line.match(/(\d{2,3})\s*[\/*xX×]\s*(\d{2,3})/) || []).slice(1).filter((v, i, a) => a.length === 2 && a[0] !== a[1]).length === 2);
+const textIsModularOrCorner = t => textIsModular(t) || cornerMixedSizes(t);
 function isModularJob(w) {
   if (!w || w.modular === false) return false;
   if (w.modular === true || w.modularDecode) return true;
@@ -472,7 +477,7 @@ function isModularJob(w) {
   const cm = currentMeasurement(w);
   if (cm && Array.isArray(cm.systems) && cm.systems.length && !cm.systems.includes("profile")) return false;
   if (cm && Array.isArray(cm.systems) && cm.systems.includes("profile")) return true; // measured as פרופיל = modular
-  return textIsModular([w.product].concat((w.madafDelivery && w.madafDelivery.lines || []).map(l => l.desc)).join(" | "));
+  return textIsModularOrCorner([w.product].concat((w.madafDelivery && w.madafDelivery.lines || []).map(l => l.desc)).join(" | "));
 }
 // A home with BOTH a modular (פרופיל) shower and a צירים נקיים one: runs the modular flow (פענוח), and the
 // צירים נקיים part still needs its factory drawing, hardware and cost.
