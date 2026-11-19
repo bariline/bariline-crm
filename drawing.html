@@ -1703,5 +1703,48 @@ try{ const t=localStorage.getItem('bl_tab'); if(t&&$('tab-'+t)) document.querySe
   };
 })();
 </script>
+<!-- ===== Bariline add-on (CRM embed only): shared price list through the CRM, prefill from the delivery note, extra-hinge pricing. Original code above is unchanged. ===== -->
+<script>
+(function(){
+  if (new URLSearchParams(location.search).get('embed') !== '1') return;
+  // 1. price list shared through the CRM (saved in Firestore) – every admin device calculates with the same prices
+  let postTimer = null;
+  const origSavePrices = savePrices;
+  savePrices = function(){ origSavePrices.apply(this, arguments); clearTimeout(postTimer); postTimer = setTimeout(() => { try { window.parent.postMessage({ type: 'bariline:prices', prices: P }, location.origin); } catch (e) {} }, 500); };
+  // 2. extra hinge: when the model's hardware set is priced, "ציר נוסף" adds one hinge of that type (by finish)
+  const origCost = costBreakdown;
+  costBreakdown = function(c){ const b = origCost.apply(this, arguments); c = c || CUR; try {
+      if (!b || !b.rows.some(r => r.model) || !c || !c.info) return b;
+      const fg = finishGroup(); const counts = {};
+      (O.sides || []).forEach(sd => (sd.els || []).forEach(el => { if (el.extraHinge && el.type !== 'fixed') { const inf = c.info.get(el.id); const n = inf && inf.hingeName || S.hwHingeWall; counts[n] = (counts[n] || 0) + 1; } }));
+      Object.entries(counts).forEach(([n, q]) => { const pp = P[(fg === 'gold' ? 'hwg|' : 'hw|') + n]; if (pp == null) b.missing = true; b.rows.push({ name: 'ציר נוסף – ' + n + (fg === 'gold' ? ' (גרפיט/זהב)' : ''), qty: q, unit: 'יח׳', price: pp == null ? null : pp, sum: pp == null ? null : q * pp }); if (pp != null) b.total += q * pp; });
+    } catch (e) {} return b; };
+  // 3. prefill from the CRM (the delivery-note line): model → layout, thickness, glass type, finish
+  const GLASS = [['גלינה פרל','גלינה פרל אקסטרה קליר'],['גלינה אקסטרה','גלינה אקסטרה'],['אסיד אקסטרה','אסיד אקסטרה קליר'],['אקסטרה','אקסטרה קליר'],['גלינה','גלינה'],['פסים','פסים'],['גרניט','גרניט'],['אסיד','אסיד'],['פיפיטה','פיפיטה'],['ברונזה','ברונזה חום'],['פרוסטד','פרוסטד'],['שקוף','שקופה']];
+  const FINISH = [['שחור','שחור'],['זהב','זהב'],['גרפיט','גרפיט'],['ברונזה','ברונזה'],['נחושת','נחושת'],['מוברש','ניקל מוברש'],['ניקל','ניקל'],['כרום','כרום']];
+  function prefill(p){
+    const text = String(p.text || '');
+    const names = [...new Set(Object.keys(P).filter(k => k.startsWith('tpl|') || k.startsWith('model|')).map(k => k.split('|')[1]))].sort((a, b) => b.length - a.length);
+    const model = names.find(n => normModel(text).includes(normModel(n))) || '';
+    const th = /(\d{1,2})\s*מ"?מ/.exec(text); const glass = (GLASS.find(([k]) => text.includes(k)) || [])[1]; const fin = (FINISH.find(([k]) => text.includes(k)) || [])[1];
+    O = newOrder(); O.no = p.no || ''; O.customer = p.customer || ''; O.model = model;
+    if (th && ['6', '8', '10'].includes(th[1])) O.thick = th[1];
+    if (glass) O.glass = glass;
+    if (fin) O.finish = fin;
+    renderForm(); modelFieldChanged(); recalc();
+    const m = $('blMsg'); if (m) { m.textContent = (model ? 'דגם ' + model + ' זוהה מהתעודה. ' : 'הדגם לא זוהה – בחר דגם. ') + 'הזן רוחבים וגובה (ידית מגבת / ציר נוסף אם יש) ולחץ "שמור בהזמנה" – העלות תחושב לפי המחירון.'; m.className = 'blMsg ok'; }
+  }
+  window.addEventListener('message', e => {
+    if (e.origin !== location.origin || !e.data || e.data.type !== 'bariline:drawing-init') return;
+    if (e.data.prices && typeof e.data.prices === 'object' && Object.keys(e.data.prices).length) {
+      P = Object.assign({}, DEFAULT_PRICES, e.data.prices); savePricesLocal();
+      try { renderPrices(); renderModelList(); } catch (err) {}
+    }
+    const hasSaved = Array.isArray(e.data.items) && e.data.items.length;
+    if (e.data.prefill && !hasSaved) { try { prefill(e.data.prefill); } catch (err) { console.warn('prefill', err); } }
+    else { try { recalc(); } catch (err) {} }
+  });
+})();
+</script>
 </body>
 </html>

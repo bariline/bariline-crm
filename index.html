@@ -150,7 +150,7 @@ const FIREBASE_CONFIG = {
   appId: "1:1042161550667:web:61a07d439a34c4705b94ce"
 };
 
-const APP_VERSION = "2026-11-16-corner-sizes";
+const APP_VERSION = "2026-11-19-report-sizes";
 // ─── Password hashing — passwords are never stored in plain text ────
 async function hashPassword(accountId, pw) {
   const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode("bariline-v1|" + String(accountId) + "|" + String(pw || "")));
@@ -3311,6 +3311,9 @@ const LoginScreen = ({
 
 // ─── System health: is the office sync alive, did every delivery note reach an installer, old phones ────
 const HEALTH = { sync: null, clients: [], started: false, subs: new Set() };
+// The drawing app's price list (glass per m², hardware sets per model) – shared through _meta/drawingPrices so every admin device prices the same
+let DRAWING_PRICES = null;
+const saveDrawingPrices = p => { try { const db = getDb(); if (db && p && typeof p === "object") db.collection("_meta").doc("drawingPrices").set({ p, updatedAt: new Date().toISOString() }); } catch (e) { console.warn("drawingPrices", e); } };
 const addLogPlain = (w, text) => ({ ...w, activityLog: [...(w.activityLog || []), { action: text, date: todayISO(), time: new Date().toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" }), by: "מערכת" }] });
 // "מתקין לפי מדף: הרצל" in the notes = Madaf named an installer the CRM does not have yet
 const madafTagOf = w => { const m = /מתקין לפי מדף: ([^|]+)/.exec(String(w && w.notes || "")); return m ? m[1].trim() : ""; };
@@ -5983,10 +5986,12 @@ const WorkOrdersPage = ({
       if (e.data.type === "bariline:drawing-ready") {
         reply({
           type: "bariline:drawing-init",
-          items
+          items,
+          prices: DRAWING_PRICES
         });
         return;
       }
+      if (e.data.type === "bariline:prices") { saveDrawingPrices(e.data.prices); return; }
       if (e.data.type !== "bariline:drawing") return;
       try {
         const {
@@ -12428,7 +12433,7 @@ function jobProductionCost(job) {
   if (isModularJob(job)) return { status: "modular" };
   const items = job && job.drawing && Array.isArray(job.drawing.items) ? job.drawing.items.filter(i => i && i.cost) : [];
   if (!items.length) return { status: "nodrawing" };
-  if (!job.measurementConfirmed) return { status: "waiting" };
+  if (!job.measurementConfirmed && !items.some(i => i.fromReport)) return { status: "waiting" };
   const rw = job.glassRework ? Number(job.glassRework.cost) || 0 : 0;
   return { status: "ok", cost: items.reduce((s, i) => s + (Number(i.cost.total) || 0), 0) + rw, partial: items.some(i => i.cost.missing) || !!(job.glassRework && job.glassRework.cost == null) };
 }
@@ -12567,8 +12572,54 @@ function deliveryLineCost(line, entry, mapping) {
   if (mapping && mapping.mode === "manual" && mapping.lastCost != null) return Number(mapping.lastCost) * qty;
   return null;
 }
-const ProfitReport = ({ workOrders, installers }) => {
+// Reports → "✏️ הזן מידות": the office draws a job that was measured outside the app (sizes, thickness, glass, finish, height,
+// towel handle / extra hinge) in the drawing app; its production cost (same price list) then joins the profit report.
+const ReportDrawing = ({ job, onSave, onClose }) => {
   const h = React.createElement;
+  const jobRef = useRef(job);
+  jobRef.current = job;
+  useEffect(() => {
+    const onMsg = e => {
+      if (e.origin !== window.location.origin || !e.data) return;
+      const reply = msg => { try { e.source && e.source.postMessage(msg, window.location.origin); } catch (err) {} };
+      const w = jobRef.current;
+      const items = w && w.drawing && Array.isArray(w.drawing.items) ? w.drawing.items : [];
+      if (e.data.type === "bariline:drawing-ready") {
+        const d = w.madafDelivery || {};
+        const line = (d.lines || []).find(l => !textIsModular(l.desc)) || (d.lines || [])[0];
+        reply({ type: "bariline:drawing-init", items, prices: DRAWING_PRICES, prefill: { text: line ? line.desc : w.product || "", no: w.id, customer: w.customerName || "" } });
+        return;
+      }
+      if (e.data.type === "bariline:prices") { saveDrawingPrices(e.data.prices); return; }
+      if (e.data.type !== "bariline:drawing") return;
+      try {
+        const item = e.data.item;
+        if (!item || !item.key || !item.snapshot) throw new Error("bad item");
+        const savedAt = new Date().toISOString();
+        const nextItems = [...items.filter(x => x.key !== item.key), { ...item, fromReport: true, savedAt }];
+        onSave(w.id, nextItems, savedAt);
+        reply({ type: "bariline:saved", items: nextItems });
+      } catch (err) {
+        console.error("[REPORT DRAWING] save failed:", err);
+        reply({ type: "bariline:save-failed" });
+      }
+    };
+    window.addEventListener("message", onMsg);
+    return () => window.removeEventListener("message", onMsg);
+  }, [onSave]);
+  return ReactDOM.createPortal(h("div", { style: { position: "fixed", inset: 0, zIndex: 2000, background: "#fff", display: "flex", flexDirection: "column", paddingTop: "env(safe-area-inset-top)" } },
+    h("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 12px", borderBottom: `1px solid ${colors.border}`, background: colors.bg } },
+      h("b", null, "הזנת מידות לחישוב עלות – " + (job.customerName || job.id)),
+      h(Button, { size: "sm", variant: "outline", onClick: onClose }, Icons.x, " סגור")),
+    h("iframe", { src: "drawing.html?embed=1&from=report&no=" + encodeURIComponent(job.id), title: "drawing", style: { flex: 1, border: 0, width: "100%" } })), document.body);
+};
+const ProfitReport = ({ workOrders, installers, setWorkOrders }) => {
+  const h = React.createElement;
+  const [draw, setDraw] = useState(null);
+  const saveReportDrawing = useCallback((id, items, savedAt) => {
+    if (!setWorkOrders) return;
+    setWorkOrders(prev => prev.map(w => w.id === id ? addLogPlain({ ...w, drawing: { ...(w.drawing && typeof w.drawing === "object" ? w.drawing : {}), items, savedAt } }, "שרטוט נשמר מדוח הרווחיות (חישוב עלות)") : w));
+  }, [setWorkOrders]);
   const [month, setMonth] = useState(new Date().toISOString().slice(0, 7));
   const [costs, setCosts] = useState({});
   const [partMap, setPartMap] = useState({});
@@ -12737,7 +12788,8 @@ const ProfitReport = ({ workOrders, installers }) => {
             h("td", { style: cell }, r.d.no), h("td", { style: { ...cell, fontWeight: 600 } }, r.job.customerName), h("td", { style: cell }, r.d.store),
             h("td", { style: cell }, r.installer || "—"), h("td", { style: cell }, r.job.isSupply ? h(Badge, { color: colors.purple || colors.primary }, "אספקה לחנות") : r.job.glassRework ? h(Badge, { color: colors.danger }, reworkOpen(r.job) ? "🔧 זכוכית בתיקון" : "זכוכית תוקנה") : r.job.status === "completed" ? h(Badge, { color: colors.success }, "הושלם") : h(Badge, { color: colors.primary }, "פתוח")),
             h("td", { style: { ...cell, fontWeight: 600 } }, fmtILS(r.price)),
-            h("td", { style: cell }, fmtILS(r.cost), r.missing ? h("span", { style: { color: colors.warning, fontWeight: 700 }, title: "חסרה עלות לחלק מהפריטים" }, " *") : null),
+            h("td", { style: cell }, fmtILS(r.cost), r.missing ? h("span", { style: { color: colors.warning, fontWeight: 700 }, title: "חסרה עלות לחלק מהפריטים" }, " *") : null,
+              r.pc && r.pc.status !== "ok" && r.pc.status !== "modular" && !r.job.isSupply && setWorkOrders ? h("button", { onClick: ev => { ev.stopPropagation(); setDraw(r.job); }, title: "הזן את מידות המקלחון בשרטוט – העלות תחושב לפי המחירון", style: { marginRight: 6, border: `1px solid ${colors.primary}`, background: "#fff", color: colors.primary, borderRadius: 6, padding: "2px 8px", fontSize: 12, cursor: "pointer", whiteSpace: "nowrap" } }, "✏️ הזן מידות") : null),
             h("td", { style: { ...cell, fontWeight: 600, color: r.profit >= 0 ? colors.success : colors.danger } }, r.missing ? "—" : fmtILS(r.profit)),
             h("td", { style: { ...cell, fontWeight: 700, color: pctColor(r.pct) } }, r.price && !r.missing ? r.pct.toFixed(1) + "%" : "—"))];
           if (open === r.d.no) out.push(h("tr", { key: r.d.no + "-l" }, h("td", { colSpan: 10, style: { padding: "6px 14px 14px", background: colors.bg } },
@@ -12769,7 +12821,8 @@ const ProfitReport = ({ workOrders, installers }) => {
         h("tfoot", null, h("tr", { style: { background: colors.bg, fontWeight: 700 } },
           h("td", { colSpan: 6, style: cell }, "סה\"כ"), h("td", { style: cell }, fmtILS(tot.price)), h("td", { style: cell }, fmtILS(tot.cost)),
           h("td", { style: { ...cell, color: totProfit >= 0 ? colors.success : colors.danger } }, full.length ? fmtILS(totProfit) : "—"),
-          h("td", { style: { ...cell, color: pctColor(totPct) } }, fullPrice ? totPct.toFixed(1) + "%" : "—"))))));
+          h("td", { style: { ...cell, color: pctColor(totPct) } }, fullPrice ? totPct.toFixed(1) + "%" : "—"))))),
+    draw && h(ReportDrawing, { job: workOrders.find(w => w.id === draw.id) || draw, onSave: saveReportDrawing, onClose: () => setDraw(null) }));
 };
 
 const ReportsPage = props => {
@@ -15645,11 +15698,13 @@ function App() {
     if (!dbReady || !currentUser) return;
     const db = getDb();
     if (!db) return;
-    return db.collection("_meta").doc("modularModels").onSnapshot(d => {
+    const uP = db.collection("_meta").doc("drawingPrices").onSnapshot(d => { DRAWING_PRICES = d.exists && d.data().p && typeof d.data().p === "object" ? d.data().p : null; }, e => console.warn("drawingPrices", e));
+    const uM = db.collection("_meta").doc("modularModels").onSnapshot(d => {
       const names = d.exists && Array.isArray(d.data().names) ? d.data().names : [];
       MODULAR_NAMES = names;
       setModularNames(names);
     }, e => console.warn("modularModels", e));
+    return () => { uP(); uM(); };
   }, [dbReady, currentUser]);
   useEffect(() => {
     if (dbReady && currentUser) loadFixedSideSizes();
@@ -15926,6 +15981,7 @@ function App() {
       case "reports":
         return /*#__PURE__*/React.createElement(ReportsPage, {
           workOrders: workOrders,
+          setWorkOrders: setWorkOrders,
           installers: installers,
           accounts: accounts,
           serviceCalls: serviceCalls
